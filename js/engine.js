@@ -332,7 +332,8 @@
   function summarise(test, m, overall, ans, N, sorted) {
     const parts = [];
     parts.push(`You completed ${ans} of ${N} ${({ wat: "words", srt: "situations", tat: "stories", sd: "paragraphs" })[test]} (${Math.round(m.completion * 100)}%).`);
-    if (m.positivity >= 0.8) parts.push("Your responses read as positive and constructive.");
+    if (m.completion < 0.6) parts.push("Too many items were left blank; at the board, unanswered items cost more than imperfect ones.");
+    else if (m.positivity >= 0.8) parts.push("Your responses read as positive and constructive.");
     else if (m.positivity < 0.6) parts.push("A noticeable share of responses were negative or escapist, which the board reads as low confidence.");
     if (test !== "wat" && m.action != null) parts.push(m.action >= 0.7 ? "You usually take concrete action yourself." : "Many answers lack a clear action by you; start with a verb.");
     if (test === "wat" && m.notPreachy < 0.8) parts.push("Several responses preach with 'should/must'; write observations instead.");

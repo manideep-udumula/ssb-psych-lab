@@ -381,23 +381,36 @@
 
 
   /* ---------- feedback (early-stage testing) ---------- */
-  const FB_EMAIL = (window.SSB_CONFIG || {}).feedbackEmail || "";
   const snoozeKey = () => "ssbpb:fbSnooze:" + (S.user ? S.user.id : "");
+  function fbMeta() {
+    const last = S.sessions[S.sessions.length - 1];
+    const lastTxt = last ? `${TESTS[last.test].code} (${last.count} items) on day ${last.day}, score ${r1(last.assessment && last.assessment.overall)}` : "none yet";
+    return { chest_no: S.user.chest, tests_taken: S.sessions.length, last_test: lastTxt, device: navigator.userAgent.slice(0, 180) };
+  }
   function feedbackBanner() {
     const old = $("#fbBar"); if (old) old.remove();
     if (!S.user || RUN || !S.sessions.length || S.fbCount > 0) return;
     let snoozedAt = -1; try { snoozedAt = +(localStorage.getItem(snoozeKey()) ?? -1); } catch (e) {}
     if (S.sessions.length <= snoozedAt) return;       // "Not now" waits until the next test
     const bar = document.createElement("div"); bar.id = "fbBar"; bar.className = "fbbar"; bar.setAttribute("role", "region"); bar.setAttribute("aria-label", "Feedback request");
-    bar.innerHTML = `<div><b>You're one of our first candidates.</b> <span class="muted">Tell us what worked and what didn't. It takes a minute and shapes what we build next.</span></div>
-      <div class="row" style="gap:8px;flex-wrap:nowrap"><button class="btn quiet" id="fbLater">Not now</button><button class="btn" id="fbGo">Give feedback</button></div>`;
+    bar.innerHTML = `<div><b>How useful was this test?</b> <span class="muted">One tap helps us improve SSB Psych Lab.</span></div>
+      <div class="row" style="gap:8px;flex-wrap:nowrap"><div class="seg" role="group" aria-label="Rate from 1 (not useful) to 5 (very useful)">${[1, 2, 3, 4, 5].map((n) => `<button data-q="${n}" aria-label="${n} out of 5">${n}</button>`).join("")}</div><button class="btn quiet" id="fbLater" style="padding:6px 10px">Not now</button></div>`;
     document.body.appendChild(bar);
     $("#fbLater").onclick = () => { try { localStorage.setItem(snoozeKey(), String(S.sessions.length)); } catch (e) {} bar.remove(); };
-    $("#fbGo").onclick = openFeedback;
+    bar.querySelectorAll("[data-q]").forEach((b) => b.onclick = async () => {
+      const rating = +b.dataset.q;
+      bar.querySelectorAll("[data-q]").forEach((x) => { x.disabled = true; x.setAttribute("aria-pressed", +x.dataset.q === rating); });
+      try { await Store.saveFeedback(S.user.id, { rating, ...fbMeta(), emailed: false }); S.fbCount = (S.fbCount || 0) + 1; }
+      catch (e) { bar.querySelectorAll("[data-q]").forEach((x) => (x.disabled = false)); return; }
+      bar.innerHTML = `<div><b>Thanks for rating ${rating}/5.</b> <span class="muted">${rating <= 3 ? "What should we fix? A line or two helps a lot." : "Anything we should add or change?"}</span></div>
+        <div class="row" style="gap:8px;flex-wrap:nowrap"><button class="btn quiet" id="fbDone">Done</button><button class="btn" id="fbMore">Add a comment</button></div>`;
+      $("#fbDone").onclick = () => bar.remove();
+      $("#fbMore").onclick = () => { bar.remove(); openFeedback(rating); };
+    });
   }
-  function openFeedback() {
-    const last = S.sessions[S.sessions.length - 1];
-    const lastTxt = last ? `${TESTS[last.test].code} (${last.count} items) on day ${last.day}, score ${r1(last.assessment && last.assessment.overall)}` : "none yet";
+  function openFeedback(preset) {
+    preset = typeof preset === "number" ? preset : 0;
+    const lastTxt = fbMeta().last_test;
     const m = modal(`<div class="eyebrow">Feedback · Chest No. ${S.user.chest}</div><h2 style="font-size:26px">How is SSB Psych Lab working for you?</h2>
       <form id="fbForm" style="display:flex;flex-direction:column;gap:12px">
         <div class="field"><label>Overall, how useful is it?</label>
@@ -411,7 +424,8 @@
         <div class="err" id="fbErr" role="alert"></div>
         <div class="row" style="justify-content:flex-end"><button type="button" class="btn quiet" id="fbCancel">Cancel</button><button class="btn" type="submit" id="fbSend">Send feedback</button></div>
       </form>`);
-    let rating = 0;
+    let rating = preset;
+    m.querySelectorAll("#fbRate button").forEach((x) => { const on = +x.dataset.r === rating; x.setAttribute("aria-pressed", on); x.setAttribute("aria-checked", on); });
     m.querySelectorAll("#fbRate button").forEach((b) => b.onclick = () => { rating = +b.dataset.r; m.querySelectorAll("#fbRate button").forEach((x) => { const on = +x.dataset.r === rating; x.setAttribute("aria-pressed", on); x.setAttribute("aria-checked", on); }); });
     $("#fbCancel", m).onclick = closeModal;
     $("#fbForm", m).addEventListener("submit", async (e) => {
@@ -419,19 +433,9 @@
       const f = { rating: rating || null, recommend: $("#fbRec", m).value, liked: $("#fbLiked", m).value.trim(), improve: $("#fbImprove", m).value.trim(), issues: $("#fbIssues", m).value.trim() };
       if (!f.rating && !f.liked && !f.improve && !f.issues) { $("#fbErr", m).textContent = "Pick a rating or write a line before sending."; return; }
       const btn = $("#fbSend", m); btn.disabled = true; btn.textContent = "Sending…";
-      const meta = { chest_no: S.user.chest, tests_taken: S.sessions.length, last_test: lastTxt, device: navigator.userAgent.slice(0, 180) };
-      // 1) save to the database first: this is fast and is the record of truth
-      let fbId = null;
-      try { fbId = await Store.saveFeedback(S.user.id, { ...f, ...meta, emailed: false }); }
+      // saved in Supabase; the database emails it to the team on its own, so nobody waits for email
+      try { await Store.saveFeedback(S.user.id, { ...f, ...fbMeta(), emailed: false }); }
       catch (err) { btn.disabled = false; btn.textContent = "Send feedback"; $("#fbErr", m).textContent = "Couldn't send right now. Check your connection and try again."; return; }
-      // 2) email in the background: the candidate never waits for it
-      if (FB_EMAIL) {
-        fetch(`https://formsubmit.co/ajax/${FB_EMAIL}`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ _subject: `SSB Psych Lab feedback · Chest ${S.user.chest} · ${f.rating || "-"}/5`, _template: "table", _captcha: "false", _replyto: S.user.email || "",
-            Name: S.user.name, "Chest No": S.user.chest, Email: S.user.email || "", Entry: S.user.entry, Rating: f.rating ? f.rating + " / 5" : "-", Recommend: f.recommend || "-",
-            "What worked": f.liked || "-", "Improve": f.improve || "-", "Broken / confusing": f.issues || "-", "Tests taken": meta.tests_taken, "Last test": meta.last_test, Device: meta.device }) })
-          .then((r) => { if (r.ok) return Store.markFeedbackEmailed(fbId); }).catch(() => {});
-      }
       S.fbCount = (S.fbCount || 0) + 1; closeModal(); const bar = $("#fbBar"); if (bar) bar.remove();
       const ok = modal(`<h2 style="font-size:24px">Thank you!</h2><p style="margin:0">Your feedback reached the team. It goes straight into the next update.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="fbOk">Close</button></div>`);
       $("#fbOk", ok).onclick = closeModal;
@@ -559,7 +563,7 @@
   /* ---------- boot ---------- */
   document.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $("#settingsBtn").addEventListener("click", openProfile);
-  $("#feedbackBtn").addEventListener("click", openFeedback);
+  $("#feedbackBtn").addEventListener("click", () => openFeedback());
   $("#chest").addEventListener("click", () => { if (S.user) openProfile(); });
   $("#logoutBtn").addEventListener("click", async () => { if (await confirmBox("Log out?", "Your progress stays saved for when you log in again.", "Log out")) { Store.logout(); S.user = null; S.sessions = []; S.overall = null; S.authMode = "login"; render(); } });
   (async function boot() {
