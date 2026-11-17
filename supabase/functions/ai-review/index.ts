@@ -1,13 +1,13 @@
 // SSB Psych Lab — Psychologist Review (AI) for single tests and the full psych battery.
 // Secrets: GROQ_API_KEY (required). Optional: GROQ_MODELS (comma list), AI_TOKEN_BUDGET (tokens/day, default 400000),
-// AI_SINGLE_PER_DAY (default 3), AI_BATTERY_PER_DAY (default 1).
+// AI_SINGLE_PER_DAY (default 1), AI_BATTERY_PER_DAY (default 1).
 // Limits: per candidate per UTC day, plus a site-wide token budget (singles stop at 70% so batteries keep headroom).
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const GROQ_KEY = Deno.env.get("GROQ_API_KEY") || "";
 const MODELS = (Deno.env.get("GROQ_MODELS") || "openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3-32b,llama-3.3-70b-versatile").split(",").map((s) => s.trim()).filter(Boolean);
 const BUDGET = Number(Deno.env.get("AI_TOKEN_BUDGET") || 400000);
-const SINGLE_MAX = Number(Deno.env.get("AI_SINGLE_PER_DAY") || 3);
+const SINGLE_MAX = Number(Deno.env.get("AI_SINGLE_PER_DAY") || 1);
 const BATTERY_MAX = Number(Deno.env.get("AI_BATTERY_PER_DAY") || 1);
 const OLQS = ["Effective Intelligence", "Reasoning Ability", "Organising Ability", "Power of Expression", "Social Adaptability", "Cooperation", "Sense of Responsibility", "Initiative", "Self Confidence", "Speed of Decision", "Ability to Influence the Group", "Liveliness", "Determination", "Courage", "Stamina"];
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info", "Access-Control-Allow-Methods": "POST, OPTIONS" };
@@ -80,6 +80,16 @@ async function start(row: any, existing: any) {
   return (await db(`ai_reviews`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(base) }))[0];
 }
 const finishRow = (id: number, patch: any) => db(`ai_reviews?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }) });
+const gradeOf = (v: number | null) => v == null ? "" : v >= 8 ? "Strong" : v >= 7 ? "Recommendable" : v >= 5.5 ? "Average" : v >= 4 ? "Below average" : "Weak";
+// The psychologist's verdict replaces the automatic scores on the test itself (the automatic result is kept under assessment.rule).
+async function overwriteSession(uid: string, sid: string, psy: any) {
+  const rows = await db(`sessions?user_id=eq.${uid}&id=eq.${sid}&select=assessment`);
+  const old = rows[0]?.assessment || {};
+  const rule = old.source === "psychologist" ? old.rule : { overall: old.overall ?? null, olq: old.olq ?? null, grade: old.grade ?? null };
+  const assessment = { ...old, ...psy, source: "psychologist", rule };
+  await db(`sessions?user_id=eq.${uid}&id=eq.${sid}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ assessment, overall: psy.overall }) });
+}
+const lowest = (o: Record<string, number>, n: number) => Object.keys(o).sort((a, b) => o[a] - o[b]).slice(0, n);
 const busy = (e: any) => e && e.status === "processing" && Date.now() - Date.parse(e.updated_at) < 150000;
 
 Deno.serve(async (req) => {
@@ -109,7 +119,7 @@ Deno.serve(async (req) => {
       const answered = (s.responses || []).filter((x: string) => String(x || "").trim()).length;
       if (!answered) return fail("empty", "This test has no answers to review.");
       const u = await usage(uid);
-      if (u.single >= SINGLE_MAX) return fail("limit", `You've used today's ${SINGLE_MAX} single-test Psychologist Reviews. They reset daily; a full battery still gets its own review.`, 429);
+      if (u.single >= SINGLE_MAX) return fail("limit", SINGLE_MAX === 1 ? "You've used today's single-test Psychologist Review. It resets daily; a full battery still gets its own review." : `You've used today's ${SINGLE_MAX} single-test Psychologist Reviews. They reset daily.`, 429);
       if (u.site >= BUDGET * 0.7) return fail("cap", "Today's Psychologist Reviews are fully booked. Try again tomorrow; your scored report is ready.", 429);
       const stim: string[] = Array.isArray(p.items) ? p.items.map((x: unknown) => String(x ?? "")).slice(0, 80) : [];
       const row = await start({ user_id: uid, kind: "single", session_id: sid, test: s.test, date: s.date, day: s.day }, existing);
@@ -118,6 +128,8 @@ Deno.serve(async (req) => {
         const olq = cleanOlq(g.data.olq);
         const result = { ...g.data, olq, overall: mean(olq), at: new Date().toISOString() };
         const done = await finishRow(row.id, { status: "done", result, models: g.model, tokens: g.tokens });
+        await overwriteSession(uid, sid, { overall: result.overall, olq, grade: g.data.grade || gradeOf(result.overall), summary: g.data.summary || "", strengths: g.data.strengths || [],
+          improvements: (g.data.improvements || []).map((i: any) => ({ olq: i.area || "", issue: i.why || "", action: i.practice || "" })), pattern: (g.data.observations || []).join(" ") }).catch(() => {});
         return json({ review: done[0] });
       } catch (e) {
         await finishRow(row.id, { status: "error", error: String(e).slice(0, 300) });
@@ -161,6 +173,11 @@ Deno.serve(async (req) => {
         } catch (_) { synth = {}; }
         const result = { overall: mean(olq), olq, ...synth, tests: per, at: new Date().toISOString() };
         const done = await finishRow(row.id, { status: "done", result, models: [...new Set(used)].join(","), tokens });
+        for (const t of ["tat", "wat", "srt", "sd"]) {
+          const d = per[t]; const ov = mean(d.olq); const low = lowest(d.olq, 3);
+          await overwriteSession(uid, sess[t].id, { overall: ov, olq: d.olq, grade: gradeOf(ov), summary: (d.observations || []).join(" "), strengths: d.strengths || [],
+            improvements: (d.weaknesses || []).map((w: string, i: number) => ({ olq: low[i] || "Focus area", issue: w, action: "" })), pattern: "" }).catch(() => {});
+        }
         return json({ review: done[0] });
       } catch (e) {
         await finishRow(row.id, { status: "error", error: String(e).slice(0, 300) });

@@ -191,12 +191,13 @@
     if (!s) return `<div class="card"><p>That report isn't in your file.</p><button class="btn" data-goto="progress">Go to Progress</button></div>`;
     const t = TESTS[s.test], items = itemsFor(s.test, s.set, s.count);
     const A = assess({ test: s.test, items, responses: s.responses }, { tatBank: window.TAT_BANK }); // full detail, deterministic
-    const answered = s.responses.filter((x) => (x || "").trim()).length, C = 2 * Math.PI * 52, ov = A.overall;
+    const psy = !!(s.assessment && s.assessment.source === "psychologist"), P = psy ? s.assessment : A; // the psychologist's verdict overrides the automatic scores
+    const answered = s.responses.filter((x) => (x || "").trim()).length, C = 2 * Math.PI * 52, ov = P.overall;
     return `<div class="row" style="justify-content:space-between"><button class="btn quiet" data-goto="progress">← All reports</button><span class="eyebrow">Day ${s.day} · Set ${pad(s.set)} · ${fmtDate(s.date)} · ${t.code}</span></div>
     <section class="card report-head">
       <div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="var(--line)" stroke-width="10"/><circle cx="60" cy="60" r="52" fill="none" stroke="var(--olive)" stroke-width="10" stroke-linecap="round" stroke-dasharray="${(C * ov) / 10} ${C}"/></svg><div class="score num">${r1(ov)}<small>/ 10</small></div></div>
-      <div style="display:flex;flex-direction:column;gap:8px"><div class="eyebrow">Scored report</div><h1 style="font-size:30px">${t.name}</h1>
-        <div><span class="pill ${scoreClass(ov)}">${A.grade}</span></div><p style="margin:0;max-width:65ch">${esc(A.summary)}</p></div>
+      <div style="display:flex;flex-direction:column;gap:8px"><div class="eyebrow" ${psy ? 'style="color:var(--brass)"' : ""}>${psy ? `${ICON.pen} Psychologist's assessment` : "Scored report"}</div><h1 style="font-size:30px">${t.name}</h1>
+        <div class="row" style="gap:8px">${P.grade ? `<span class="pill ${scoreClass(ov)}">${esc(P.grade)}</span>` : ""}${psy ? `<span class="pill" style="color:var(--brass)">Reviewed by your psychologist</span>` : ""}</div><p style="margin:0;max-width:65ch">${esc(P.summary || "")}</p></div>
     </section>
     <div class="kpis">
       <div class="kpi"><b>${answered}/${items.length}</b><span>Responses completed</span></div>
@@ -207,14 +208,15 @@
     ${psychSection(s)}
     <section class="two">
       <div class="card"><h2 style="font-size:22px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Improvement areas</h2>
-        <ul class="list">${A.improvements.map((i) => `<li class="imp"><b>${esc(i.olq)}</b><span>${esc(i.issue)}</span><div style="color:var(--olive);font-size:14px;margin-top:4px">Do this: ${esc(i.action)}</div></li>`).join("")}</ul></div>
+        <ul class="list">${(P.improvements || []).map((i) => `<li class="imp"><b>${esc(i.olq)}</b><span>${esc(i.issue)}</span>${i.action ? `<div style="color:var(--olive);font-size:14px;margin-top:4px">${psy ? "Practise" : "Do this"}: ${esc(i.action)}</div>` : ""}</li>`).join("") || `<li class="muted">—</li>`}</ul></div>
       <div class="card"><h2 style="font-size:22px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">What worked</h2>
-        <ul class="list">${A.strengths.map((x) => `<li class="str">${esc(x)}</li>`).join("")}</ul><p class="muted" style="font-size:14px;margin:14px 0 0">${esc(A.pattern)}</p></div>
+        <ul class="list">${(P.strengths || []).map((x) => `<li class="str">${esc(x)}</li>`).join("") || `<li class="muted">—</li>`}</ul>${!psy && A.pattern ? `<p class="muted" style="font-size:14px;margin:14px 0 0">${esc(A.pattern)}</p>` : ""}</div>
     </section>
-    <section class="card"><div class="section-h" style="margin-bottom:14px"><h2>OLQs in this test</h2><span class="muted" style="font-size:13px">Brass mark = 7.0</span></div>${olqBlock(A.olq)}</section>
-    ${responsesBlock(s, items, A)}`;
+    <section class="card"><div class="section-h" style="margin-bottom:14px"><h2>OLQs in this test</h2><span class="muted" style="font-size:13px">${psy ? "Psychologist's rating · " : ""}Brass mark = 7.0</span></div>${olqBlock(P.olq)}</section>
+    ${psy ? psychNotes(s) : ""}
+    ${responsesBlock(s, items, A, psy)}`;
   }
-  function responsesBlock(s, items, A) {
+  function responsesBlock(s, items, A, psy) {
     const tags = [...new Set(A.items.map((i) => i.tag))]; const f = S.filter;
     const rows = items.map((it, i) => {
       const fb = A.items[i]; if (f !== "all" && fb.tag !== f) return "";
@@ -223,7 +225,7 @@
       const pic = s.test === "tat" && !it.blank ? tatPic(it.id) : null;
       const cls = /Positive|Good/.test(fb.tag) ? "good" : /Neutral|Average/.test(fb.tag) ? "warn" : "bad";
       return `<div class="resp"><div class="idx num">${pad(i + 1)}</div><div>
-        <div class="row" style="gap:8px;justify-content:space-between"><span class="prompt">${prompt}</span><span class="pill ${cls}">${esc(fb.tag)} · ${r1(fb.score)}</span></div>
+        <div class="row" style="gap:8px;justify-content:space-between"><span class="prompt">${prompt}</span><span class="pill ${cls}">${esc(fb.tag)}${psy ? "" : " · " + r1(fb.score)}</span></div>
         ${pic ? `<img class="thumb" src="${pic.file}" alt="${esc(pic.desc)}">` : ""}
         <div class="ans ${ans ? "" : "empty"}">${ans ? esc(ans) : "No response"}</div>
         ${fb.note ? `<div class="note">${esc(fb.note)}</div>` : ""}
@@ -541,6 +543,7 @@
     try {
       const j = await call(); const rv = j.review;
       S.ai.reviews = [rv, ...S.ai.reviews.filter((r) => r.id !== rv.id)];
+      try { S.sessions = await Store.sessions(S.user.id); } catch (e) {}
       Store.ai("status").then((st) => (S.ai.status = st)).catch(() => {});
     } catch (e) { S.ai.err[key] = { msg: e.message, code: e.code }; }
     delete S.ai.pending[key]; if (!RUN) render();
@@ -593,11 +596,11 @@
     if (st && !st.configured) return `<section class="card psy"><span class="eyebrow" style="color:var(--brass)">Psychologist Review</span><h2 style="font-size:24px">Opening soon</h2><p class="muted" style="margin:0">Your psychologist is getting ready. Reviews will appear here once they open; your scored report below is ready now.</p></section>`;
     const left = st ? Math.max(0, st.limits.single - st.used.single) : null;
     const blocked = kind === "single" && st && (left === 0 || !st.singleOpen);
-    const note = kind === "single" ? (st ? (left === 0 ? "You've used today's 3 single-test reviews. They reset daily." : !st.singleOpen ? "Today's Psychologist Reviews are fully booked. Back tomorrow." : `${left} of ${st.limits.single} single-test reviews left today`) : "3 single-test reviews a day")
+    const note = kind === "single" ? (st ? (left === 0 ? "You've used today's single-test review. It resets daily." : !st.singleOpen ? "Today's Psychologist Reviews are fully booked. Back tomorrow." : st.limits.single === 1 ? "1 single-test review a day · use it on the test you most want checked" : `${left} of ${st.limits.single} single-test reviews left today`) : "1 single-test review a day")
       : "One full review per day";
     return `<section class="card psy"><div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--brass)">Psychologist Review</span><span class="pill" style="color:var(--brass)">${ICON.pen} ${kind === "battery" ? "Full battery" : "This test"}</span></div>
       <h2 style="font-size:26px">${kind === "battery" ? "Get your full Psychologist Review" : "Want a psychologist's reading of this test?"}</h2>
-      <p class="muted" style="margin:0">${kind === "battery" ? "Your psychologist reads all four tests together, rates your 15 OLQs, checks whether the tests show one consistent personality, and gives you a 7-day plan." : "Your psychologist reads every answer, rates your OLQs, quotes what worked and what didn't, and shows how to improve."}</p>
+      <p class="muted" style="margin:0">${kind === "battery" ? "Your psychologist reads all four tests together, replaces the automatic scores with a proper assessment, rates your 15 OLQs, checks whether the tests show one consistent personality, and gives you a 7-day plan." : "Your psychologist reads every answer and replaces the automatic score with a proper assessment: OLQ ratings, what worked, what didn't, and how to improve."}</p>
       ${err ? `<div class="banner" role="alert" style="margin:0">${esc(err.msg)}</div>` : ""}
       <div class="row"><button class="btn" ${btnAttr} ${blocked ? "disabled" : ""}>${err && err.code === "ai_failed" ? "Try again" : "Get Psychologist Review"}</button><span class="spec">${note}</span></div></section>`;
   }
@@ -607,9 +610,14 @@
       const complete = batteriesDone().some((b) => b.id === s.assessment.battery);
       return `<div class="banner" style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><span>This test is part of a full battery${complete ? "." : " that wasn't finished."}</span>${complete ? `<button class="btn ghost" data-battery="${s.assessment.battery}">Open full Psychologist Review</button>` : ""}</div>`;
     }
-    const rv = findReview("single", s.id);
-    if (rv && rv.status === "done") return reviewHTML(rv, "single");
+    if (s.assessment && s.assessment.source === "psychologist") return "";
     return psychGate(s.id, "single", `data-psy="${s.id}"`);
+  }
+  function psychNotes(s) {
+    const rv = s.assessment.battery ? null : findReview("single", s.id); const r = rv && rv.result;
+    if (!r || !((r.observations || []).length || (r.examples || []).length)) return "";
+    const ex = (r.examples || []).filter((e) => e && (e.comment || e.quote)).map((e) => `<div class="resp"><div class="idx num">${e.item ? pad(e.item) : "·"}</div><div style="display:flex;flex-direction:column;gap:6px">${e.quote ? `<div class="quote">“${esc(e.quote)}”</div>` : ""}<div style="font-size:14px">${esc(e.comment || "")}</div>${e.better ? `<div class="better">Better: ${esc(e.better)}</div>` : ""}</div></div>`).join("");
+    return `<section class="card" style="display:flex;flex-direction:column;gap:12px"><h2 style="font-size:22px">What the psychologist noticed</h2>${(r.observations || []).length ? `<ul style="margin:0;padding-left:18px">${r.observations.map((o) => `<li>${esc(o)}</li>`).join("")}</ul>` : ""}${ex}</section>`;
   }
   function viewBattery() {
     const bid = S.reportId, list = batterySessions(bid);
