@@ -217,3 +217,10 @@ img.thumb{width:160px;border:1px solid var(--line);border-radius:3px;margin:6px 
 body:not(.authed) #chest{display:none}
 @media (max-width:440px){body.authed .brand span{display:none}}
 [hidden]{display:none !important}
+
+.fbbar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:40;width:min(720px,calc(100% - 24px));background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--brass);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:12px 14px;display:flex;gap:12px;align-items:center;justify-content:space-between;font-size:14px}
+@media (max-width:560px){.fbbar{flex-direction:column;align-items:stretch}.fbbar .row{justify-content:flex-end}}
+.fbta{padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--paper);resize:vertical;font-size:15px}
+.modal .card{max-height:calc(100vh - 32px);overflow:auto}
+@media (max-width:440px){#settingsBtn{display:none}}
+body.authed #chest{cursor:pointer}

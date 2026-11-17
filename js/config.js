@@ -5,4 +5,6 @@
 window.SSB_CONFIG = {
   supabaseUrl: "https://lbjyiuenirhxoydfnurw.supabase.co",
   supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxianlpdWVuaXJoeG95ZGZudXJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5MjE2MDAsImV4cCI6MjExMDQ5NzYwMH0.R_B47JQpbtj5Fywh89IWckLkX9qDaBh-LPS3kspLmXU",
+  // Feedback from candidates is saved in Supabase and emailed here (via formsubmit.co).
+  feedbackEmail: "ssbpsychlab@gmail.com",
 };

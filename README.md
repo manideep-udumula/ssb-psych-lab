@@ -57,6 +57,7 @@ a human psychologist would. Use the reports for patterns, not as a verdict.
 - `sessions`: one row per test (responses + scores); detailed feedback is regenerated from the responses when a report opens
 - `olq_scores`: 15 rows per test, filled by a trigger, for fast stats
 - `overall_reports`: the latest overall assessment per candidate
+- `feedback`: feedback from candidates (also emailed to the address in `js/config.js` via formsubmit.co)
 - `candidate_summary`: an admin view (chest no, name, tests taken, average score), readable from the Supabase dashboard
 
 Row Level Security limits every candidate to their own rows.

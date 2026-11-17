@@ -78,7 +78,7 @@
     else if (S.view === "progress") html += viewProgress();
     else if (S.view === "report") html += viewReport();
     else html += viewInterview();
-    main.innerHTML = html; bind();
+    main.innerHTML = html; bind(); feedbackBanner();
   }
 
   /* ---------- auth ---------- */
@@ -122,7 +122,10 @@
       <p class="muted" style="margin:0">Use it like you would at the board. Day 1 of your 30-day program starts today.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="cOk">Start</button></div>`);
     $("#cOk", m).onclick = closeModal;
   }
-  async function loadUser() { S.sessions = await Store.sessions(S.user.id); S.overall = await Store.overall(S.user.id); }
+  async function loadUser() {
+    S.sessions = await Store.sessions(S.user.id); S.overall = await Store.overall(S.user.id);
+    try { S.fbCount = await Store.feedbackCount(S.user.id); } catch (e) { S.fbCount = 0; }
+  }
 
   /* ---------- today ---------- */
   function viewToday() {
@@ -376,6 +379,67 @@
     $("#pf", m).addEventListener("submit", async (e) => { e.preventDefault(); S.user = await Store.updateUser(u.id, { name: $("#pfName", m).value.trim() || u.name, entry: $("#pfEntry", m).value }); closeModal(); render(); });
   }
 
+
+  /* ---------- feedback (early-stage testing) ---------- */
+  const FB_EMAIL = (window.SSB_CONFIG || {}).feedbackEmail || "";
+  const snoozeKey = () => "ssbpb:fbSnooze:" + (S.user ? S.user.id : "");
+  function feedbackBanner() {
+    const old = $("#fbBar"); if (old) old.remove();
+    if (!S.user || RUN || !S.sessions.length || S.fbCount > 0) return;
+    let snoozedAt = -1; try { snoozedAt = +(localStorage.getItem(snoozeKey()) ?? -1); } catch (e) {}
+    if (S.sessions.length <= snoozedAt) return;       // "Not now" waits until the next test
+    const bar = document.createElement("div"); bar.id = "fbBar"; bar.className = "fbbar"; bar.setAttribute("role", "region"); bar.setAttribute("aria-label", "Feedback request");
+    bar.innerHTML = `<div><b>You're one of our first candidates.</b> <span class="muted">Tell us what worked and what didn't. It takes a minute and shapes what we build next.</span></div>
+      <div class="row" style="gap:8px;flex-wrap:nowrap"><button class="btn quiet" id="fbLater">Not now</button><button class="btn" id="fbGo">Give feedback</button></div>`;
+    document.body.appendChild(bar);
+    $("#fbLater").onclick = () => { try { localStorage.setItem(snoozeKey(), String(S.sessions.length)); } catch (e) {} bar.remove(); };
+    $("#fbGo").onclick = openFeedback;
+  }
+  function openFeedback() {
+    const last = S.sessions[S.sessions.length - 1];
+    const lastTxt = last ? `${TESTS[last.test].code} (${last.count} items) on day ${last.day}, score ${r1(last.assessment && last.assessment.overall)}` : "none yet";
+    const m = modal(`<div class="eyebrow">Feedback · Chest No. ${S.user.chest}</div><h2 style="font-size:26px">How is SSB Psych Lab working for you?</h2>
+      <form id="fbForm" style="display:flex;flex-direction:column;gap:12px">
+        <div class="field"><label>Overall, how useful is it?</label>
+          <div class="seg" role="radiogroup" aria-label="Rating from 1 to 5" id="fbRate">${[1, 2, 3, 4, 5].map((n) => `<button type="button" role="radio" aria-checked="false" aria-pressed="false" data-r="${n}">${n}</button>`).join("")}</div>
+          <span class="muted" style="font-size:12px">1 = not useful · 5 = very useful</span></div>
+        <div class="field"><label for="fbLiked">What worked well?</label><textarea id="fbLiked" rows="2" maxlength="1500" class="fbta"></textarea></div>
+        <div class="field"><label for="fbImprove">What should we improve? (scoring, timings, word/situation sets, design…)</label><textarea id="fbImprove" rows="3" maxlength="2000" class="fbta"></textarea></div>
+        <div class="field"><label for="fbIssues">Anything broken or confusing? (optional)</label><textarea id="fbIssues" rows="2" maxlength="1500" class="fbta"></textarea></div>
+        <div class="field"><label for="fbRec">Would you recommend it to a friend preparing for SSB?</label><select id="fbRec"><option value="">Choose…</option><option>Yes</option><option>Maybe</option><option>No</option></select></div>
+        <div class="muted" style="font-size:12px">Sent with your name, email and chest number so we can reply, plus your last test (${esc(lastTxt)}).</div>
+        <div class="err" id="fbErr" role="alert"></div>
+        <div class="row" style="justify-content:flex-end"><button type="button" class="btn quiet" id="fbCancel">Cancel</button><button class="btn" type="submit" id="fbSend">Send feedback</button></div>
+      </form>`);
+    let rating = 0;
+    m.querySelectorAll("#fbRate button").forEach((b) => b.onclick = () => { rating = +b.dataset.r; m.querySelectorAll("#fbRate button").forEach((x) => { const on = +x.dataset.r === rating; x.setAttribute("aria-pressed", on); x.setAttribute("aria-checked", on); }); });
+    $("#fbCancel", m).onclick = closeModal;
+    $("#fbForm", m).addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = { rating: rating || null, recommend: $("#fbRec", m).value, liked: $("#fbLiked", m).value.trim(), improve: $("#fbImprove", m).value.trim(), issues: $("#fbIssues", m).value.trim() };
+      if (!f.rating && !f.liked && !f.improve && !f.issues) { $("#fbErr", m).textContent = "Pick a rating or write a line before sending."; return; }
+      const btn = $("#fbSend", m); btn.disabled = true; btn.textContent = "Sending…";
+      const meta = { chest_no: S.user.chest, tests_taken: S.sessions.length, last_test: lastTxt, device: navigator.userAgent.slice(0, 180) };
+      let emailed = false;
+      if (FB_EMAIL) {
+        try {
+          const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 12000);
+          const r = await fetch(`https://formsubmit.co/ajax/${FB_EMAIL}`, { method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ _subject: `SSB Psych Lab feedback · Chest ${S.user.chest} · ${f.rating || "-"}/5`, _template: "table", _captcha: "false", _replyto: S.user.email || "",
+              Name: S.user.name, "Chest No": S.user.chest, Email: S.user.email || "", Entry: S.user.entry, Rating: f.rating ? f.rating + " / 5" : "-", Recommend: f.recommend || "-",
+              "What worked": f.liked || "-", "Improve": f.improve || "-", "Broken / confusing": f.issues || "-", "Tests taken": meta.tests_taken, "Last test": meta.last_test, Device: meta.device }) });
+          clearTimeout(t); emailed = r.ok;
+        } catch (err) { emailed = false; }
+      }
+      let saved = false;
+      try { await Store.saveFeedback(S.user.id, { ...f, ...meta, emailed }); saved = true; } catch (err) {}
+      if (!emailed && !saved) { btn.disabled = false; btn.textContent = "Send feedback"; $("#fbErr", m).textContent = "Couldn't send right now. Check your connection and try again."; return; }
+      S.fbCount = (S.fbCount || 0) + 1; closeModal(); const bar = $("#fbBar"); if (bar) bar.remove();
+      const ok = modal(`<h2 style="font-size:24px">Thank you!</h2><p style="margin:0">Your feedback reached the team. It goes straight into the next update.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="fbOk">Close</button></div>`);
+      $("#fbOk", ok).onclick = closeModal;
+    });
+  }
+
   /* ---------- test environment ---------- */
   let RUN = null;
   function envShell(title) {
@@ -497,6 +561,8 @@
   /* ---------- boot ---------- */
   document.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
   $("#settingsBtn").addEventListener("click", openProfile);
+  $("#feedbackBtn").addEventListener("click", openFeedback);
+  $("#chest").addEventListener("click", () => { if (S.user) openProfile(); });
   $("#logoutBtn").addEventListener("click", async () => { if (await confirmBox("Log out?", "Your progress stays saved for when you log in again.", "Log out")) { Store.logout(); S.user = null; S.sessions = []; S.overall = null; S.authMode = "login"; render(); } });
   (async function boot() {
     readHash();

@@ -125,3 +125,24 @@ order by p.chest_no;
 revoke execute on function public.handle_new_user() from public, anon, authenticated;
 revoke execute on function public.sync_olq_scores() from public, anon;
 revoke all on public.candidate_summary from anon, authenticated;
+
+-- ---------- feedback (early-stage testing) ----------
+create table if not exists public.feedback (
+  id          bigint generated always as identity primary key,
+  user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  chest_no    bigint,
+  rating      int check (rating between 1 and 5),
+  recommend   text,
+  liked       text,
+  improve     text,
+  issues      text,
+  tests_taken int,
+  last_test   text,
+  device      text,
+  emailed     boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+create index if not exists feedback_user on public.feedback (user_id);
+alter table public.feedback enable row level security;
+create policy "insert own feedback" on public.feedback for insert to authenticated with check (user_id = (select auth.uid()));
+create policy "read own feedback" on public.feedback for select to authenticated using (user_id = (select auth.uid()));
