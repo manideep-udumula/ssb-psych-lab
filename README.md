@@ -68,6 +68,12 @@ In Supabase → Authentication → URL Configuration, set **Site URL** to the Gi
 email-confirmation link brings candidates back to the site. (Or turn off "Confirm email" under
 Authentication → Sign In / Providers → Email if you don't want confirmation.)
 
+## Admin dashboard (HQ)
+
+Open `admin.html` (the site shows an **HQ** button to admin accounts). It shows site impressions, candidates,
+tests, score distributions, the average OLQ profile, practice heatmap, feedback, and a full profile for each
+candidate. Data comes from admin-only database functions (`supabase/admin.sql`, `supabase/admin_overview.sql`).
+
 ## TAT pictures
 
 Pictures 1–49 come from the supplied `ALL_TAT.pdf`, 50–54 from the supplied screenshots.

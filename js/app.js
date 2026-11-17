@@ -68,8 +68,8 @@
   function render() {
     const nav = $("#nav"), main = $("#main");
     document.body.classList.toggle("authed", !!S.user);
-    if (!S.user) { nav.hidden = true; $("#chest").textContent = "SSB PSYCH PRACTICE"; $("#userBtns").hidden = true; main.innerHTML = viewAuth(); bindAuth(); return; }
-    nav.hidden = false; $("#userBtns").hidden = false;
+    if (!S.user) { if (S.lastLogged !== "auth") { S.lastLogged = "auth"; Store.logView("auth"); } nav.hidden = true; $("#chest").textContent = "SSB PSYCH PRACTICE"; $("#userBtns").hidden = true; main.innerHTML = viewAuth(); bindAuth(); return; }
+    nav.hidden = false; $("#userBtns").hidden = false; $("#hqBtn").hidden = !S.isAdmin;
     $("#chest").textContent = `CHEST NO. ${S.user.chest}`;
     document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-current", b.dataset.view === (S.view === "report" ? "progress" : S.view) ? "page" : "false"));
     let html = "";
@@ -79,6 +79,8 @@
     else if (S.view === "report") html += viewReport();
     else html += viewInterview();
     main.innerHTML = html; bind(); feedbackBanner();
+    const key = S.view === "report" ? "report" : S.view;
+    if (key !== S.lastLogged) { S.lastLogged = key; Store.logView(key); }
   }
 
   /* ---------- auth ---------- */
@@ -125,6 +127,7 @@
   async function loadUser() {
     S.sessions = await Store.sessions(S.user.id); S.overall = await Store.overall(S.user.id);
     try { S.fbCount = await Store.feedbackCount(S.user.id); } catch (e) { S.fbCount = 0; }
+    S.isAdmin = false; if (Store.kind === "supabase") Store.rpc("is_admin").then((v) => { S.isAdmin = v === true; const b = $("#hqBtn"); if (b) b.hidden = !S.isAdmin; }).catch(() => {});
   }
 
   /* ---------- today ---------- */

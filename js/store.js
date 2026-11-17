@@ -98,6 +98,19 @@
       async saveSession(uid, s) { await rest(`sessions`, { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(toRow(s, uid)) }); },
       async overall() { const r = await rest(`overall_reports?select=report`); return r[0] ? r[0].report : null; },
       async saveOverall(uid, o) { await rest(`overall_reports`, { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: uid, report: o, updated_at: new Date().toISOString() }) }); },
+      async rpc(fn, args = {}) { return rest(`rpc/${fn}`, { method: "POST", body: JSON.stringify(args) }); },
+      isLoggedIn() { return !!auth; },
+      logView(v) {
+        // anonymous impression log for the admin dashboard; never blocks the page
+        try {
+          let vid = lget("vid", null); if (!vid) { vid = "v" + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); lset("vid", vid); }
+          const w = window.innerWidth, device = /Mobi|Android|iPhone/i.test(navigator.userAgent) || w < 640 ? "mobile" : w < 1024 ? "tablet" : "desktop";
+          let referrer = ""; try { if (document.referrer) { const h = new URL(document.referrer).host; if (h && h !== location.host) referrer = h.slice(0, 120); } } catch (e) {}
+          const go = () => fetch(`${URL_}/rest/v1/page_views`, { method: "POST", keepalive: true, headers: { apikey: KEY, "Content-Type": "application/json", Prefer: "return=minimal", Authorization: `Bearer ${auth && auth.expires_at > Date.now() + 30000 ? auth.access_token : KEY}` },
+            body: JSON.stringify({ visitor_id: vid, view: String(v).slice(0, 30), device, referrer, ...(auth ? {} : { user_id: null }) }) }).catch(() => {});
+          go();
+        } catch (e) {}
+      },
       async feedbackCount() { const r = await rest(`feedback?select=id`); return r.length; },
       async saveFeedback(uid, f) { const r = await rest(`feedback?select=id`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ user_id: uid, ...f }) }); return r && r[0] ? r[0].id : null; },
       async markFeedbackEmailed(id) { if (id) await rest(`feedback?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ emailed: true }) }); },
@@ -140,6 +153,7 @@
       async overall(uid) { return lget("u:" + uid + ":overall", null); },
       async saveOverall(uid, o) { lset("u:" + uid + ":overall", o); },
       async feedbackCount(uid) { return lget("u:" + uid + ":feedback", []).length; },
+      logView() {}, isLoggedIn() { return !!lget("current", null); }, async rpc() { throw new Error("Admin dashboard needs Supabase."); },
       async saveFeedback(uid, f) { const l = lget("u:" + uid + ":feedback", []); l.push({ ...f, created_at: new Date().toISOString() }); lset("u:" + uid + ":feedback", l); return l.length; },
       async markFeedbackEmailed() {},
     };
