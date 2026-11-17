@@ -385,7 +385,7 @@
     if (typeof Store.rpc !== "function") { $("#hq").innerHTML = `<div class="panel"><h3>Old version cached</h3><p class="muted" style="margin:0">Your browser is using an older copy of the site. Press <b>Ctrl+Shift+R</b> (or Cmd+Shift+R on Mac) to reload.</p></div>`; return; }
     let ok = false, err = null; try { ok = (await Store.rpc("is_admin")) === true; } catch (e) { err = e; }
     if (err) { $("#hq").innerHTML = `<div class="panel"><h3>Couldn't check admin access</h3><p class="muted" style="margin:0">${esc(err.message)}. Reload the page to try again.</p></div>`; return; }
-    if (!ok) { Store.logout(); return showLogin(`<b>${esc(me.email)}</b> isn't an admin account. Log in with the admin account.`); }
+    if (!ok) { $("#hqActions").hidden = true; $("#hqNav").hidden = true; $("#hq").innerHTML = `<div class="loginbox"><div class="eyebrow">Restricted</div><h1 style="font-size:40px;text-transform:uppercase;letter-spacing:.06em">HQ is for admins</h1><p class="muted" style="margin:6px 0 14px">This area is only for the SSB Psych Lab team. Your account and progress are unaffected.</p><a class="btn" href="./">← Back to SSB Psych Lab</a></div>`; return; }
     $("#hqActions").hidden = false; $("#hqNav").hidden = false;
     $("#hq").innerHTML = `<div class="loading"><div class="spinner"></div><div class="muted">Loading HQ…</div></div>`;
     await refresh(true);

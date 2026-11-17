@@ -17,3 +17,5 @@ alter table public.ai_reviews enable row level security;
 create policy "own ai reviews" on public.ai_reviews for select to authenticated using (user_id = (select auth.uid()));
 -- Writes happen only in the ai-review Edge Function (service role). See functions/ai-review/index.ts.
 -- public.admin_ai_usage(days int) : admin-only usage summary for HQ (is_admin() gated, SECURITY DEFINER).
+-- HQ access: private.admin_emails (udumulamanideep158@gmail.com, ssbpsychlab@gmail.com); is_admin() checks private.admins
+-- by user id OR a confirmed account whose email is in private.admin_emails.
