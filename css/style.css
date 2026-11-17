@@ -224,3 +224,27 @@ body:not(.authed) #chest{display:none}
 .modal .card{max-height:calc(100vh - 32px);overflow:auto}
 @media (max-width:440px){#settingsBtn{display:none}}
 body.authed #chest{cursor:pointer}
+
+/* ---------- full battery + Psychologist Review (same theme tokens) ---------- */
+.battery,.psy{display:flex;flex-direction:column;gap:14px}
+.battery{border:2px solid var(--olive);border-radius:12px}
+.psy{border:2px solid var(--brass);border-radius:12px}
+.bsteps{display:flex;flex-direction:column}
+.bstep{display:flex;align-items:center;gap:12px;position:relative;padding:6px 0}
+.bstep b{display:block;font-family:var(--display);font-size:20px;letter-spacing:.04em;line-height:1}
+.bstep .muted{font-size:13px}
+.bstep .dot{width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--paper);display:flex;align-items:center;justify-content:center;flex:none;font-family:var(--mono);font-size:10px;font-weight:600}
+.bstep.done .dot{background:var(--good);border-color:var(--good);color:var(--surface)}
+.bstep.now .dot{border:2px solid var(--olive);background:var(--olive-soft);color:var(--olive)}
+.bsteps .bstep+.bstep::before{content:"";position:absolute;left:13px;top:-6px;width:2px;height:12px;background:var(--line)}
+.lockbox{display:flex;gap:10px;align-items:flex-start;background:var(--olive-soft);border-radius:8px;padding:10px 12px;color:var(--olive);font-size:14px}
+.lockbox svg{flex:none;margin-top:3px}
+.indet{height:6px;border-radius:3px;background:var(--line);overflow:hidden;position:relative}
+.indet b{position:absolute;top:0;left:-40%;width:40%;height:100%;background:var(--brass);border-radius:3px;animation:indet 1.4s ease-in-out infinite}
+@keyframes indet{to{left:100%}}
+.quote{font-style:italic;color:var(--muted);background:var(--paper);border-radius:6px;padding:8px 10px;font-size:14px}
+.brk{font-family:var(--mono);font-weight:600;font-size:52px;line-height:1.1}
+.plan{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px}
+.kpi.click:hover{background:var(--olive-soft)}
+@media (prefers-reduced-motion:reduce){.indet b{animation:none;left:0;width:100%;opacity:.5}}
+.battery .spec,.psy .spec,.env .spec{font-family:var(--mono);font-size:12px;color:var(--muted)}

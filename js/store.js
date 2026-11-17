@@ -99,6 +99,17 @@
       async overall() { const r = await rest(`overall_reports?select=report`); return r[0] ? r[0].report : null; },
       async saveOverall(uid, o) { await rest(`overall_reports`, { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: uid, report: o, updated_at: new Date().toISOString() }) }); },
       async rpc(fn, args = {}) { return rest(`rpc/${fn}`, { method: "POST", body: JSON.stringify(args) }); },
+      async ai(action, payload = {}) {
+        // Psychologist Review: calls the ai-review Edge Function, which holds the AI key and enforces the limits
+        if (auth && auth.expires_at - Date.now() < 60000) await refresh();
+        const call = () => fetch(`${URL_}/functions/v1/ai-review`, { method: "POST", headers: { apikey: KEY, "Content-Type": "application/json", Authorization: `Bearer ${auth ? auth.access_token : KEY}` }, body: JSON.stringify({ action, ...payload }) });
+        let r; try { r = await call(); } catch (e) { const er = new Error("Couldn't reach the psychologist. Check your connection."); er.code = "network"; throw er; }
+        if (r.status === 401 && auth) { await refresh(); r = await call(); }
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { const er = new Error(j.message || `Server error (${r.status}).`); er.code = j.error || "http"; throw er; }
+        return j;
+      },
+      async aiReviews() { return rest(`ai_reviews?select=id,kind,battery_id,session_id,test,date,day,status,result,created_at&order=created_at.desc&limit=200`); },
       isLoggedIn() { return !!auth; },
       logView(v) {
         // anonymous impression log for the admin dashboard; never blocks the page
@@ -153,7 +164,7 @@
       async overall(uid) { return lget("u:" + uid + ":overall", null); },
       async saveOverall(uid, o) { lset("u:" + uid + ":overall", o); },
       async feedbackCount(uid) { return lget("u:" + uid + ":feedback", []).length; },
-      logView() {}, isLoggedIn() { return !!lget("current", null); }, async rpc() { throw new Error("Admin dashboard needs Supabase."); },
+      logView() {}, isLoggedIn() { return !!lget("current", null); }, async rpc() { throw new Error("Admin dashboard needs Supabase."); }, async ai() { const e = new Error("Psychologist Reviews need an online account."); e.code = "local"; throw e; }, async aiReviews() { return []; },
       async saveFeedback(uid, f) { const l = lget("u:" + uid + ":feedback", []); l.push({ ...f, created_at: new Date().toISOString() }); lset("u:" + uid + ":feedback", l); return l.length; },
       async markFeedbackEmailed() {},
     };

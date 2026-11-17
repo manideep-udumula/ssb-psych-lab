@@ -162,7 +162,11 @@
   }
 
   /* =================== data =================== */
-  async function loadOverview() { S.ov = await Store.rpc("admin_overview", { days: S.days }); }
+  async function loadOverview() {
+    const [ov, ai] = await Promise.all([Store.rpc("admin_overview", { days: S.days }), Store.rpc("admin_ai_usage", { days: S.days }).catch(() => null)]);
+    S.ov = ov; S.ai = ai;
+  }
+  const AI_BUDGET = 400000; // must match AI_TOKEN_BUDGET in the ai-review Edge Function
   async function loadUsers() { S.users = await Store.rpc("admin_users"); }
   async function loadDetail(id) { if (!S.detail[id]) S.detail[id] = await Store.rpc("admin_user_detail", { uid: id }); return S.detail[id]; }
 
@@ -190,6 +194,7 @@
       ${panel("cMix", "Tests by type", "All tests taken so far", "span-4")}
       ${panel("cDaily", "Tests per day", `Stacked by test type · last ${S.days} days`, "span-8", `<div class="legend">${TESTS.map((t) => `<span><i style="background:${t.c}"></i>${t.code}</span>`).join("")}</div>`)}
       ${panel("cFunnel", "Candidate journey", "From first visit to regular practice", "span-4")}
+      ${S.ai ? panel("cAi", "Psychologist Reviews", `Reviews written per day · last ${S.days} days`, "span-8", `<div class="legend"><span><i style="background:var(--s1)"></i>Single test</span><span><i style="background:var(--brass)"></i>Full battery</span></div>`) + `<section class="panel span-4"><div class="panel-h"><h3>Today's AI budget</h3></div><div class="sub">Free Groq quota · resets 05:30 IST</div><div id="cAiToday" class="viz"></div></section>` : ""}
       ${panel("cRadar", "Average OLQ profile", "All candidates · dashed brass ring = 7.0 (recommendable)", "span-6")}
       <section class="panel span-6"><div class="panel-h"><h3>Score distribution</h3></div><div class="sub">Every test's overall score, by band</div><div id="cBuckets" class="viz"></div>
         <div class="panel-h" style="margin-top:6px"><h3 style="font-size:15px">Average score by test</h3></div><div id="cByTest" class="viz"></div></section>
@@ -220,11 +225,24 @@
     const EC = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)"]; const ent = Object.entries(o.entries).sort((a, b) => b[1] - a[1]);
     const entItems = ent.slice(0, 3).map(([k, v], i) => ({ label: k, value: v, color: EC[i] })); const rest = ent.slice(3).reduce((a, b) => a + b[1], 0); if (rest) entItems.push({ label: "Other", value: rest, color: EC[3] });
     donut($("#cEntry"), entItems, { value: num(o.totals.candidates), label: "candidates" });
-    const PN = { today: "Today", progress: "Progress", report: "Reports", interview: "Interview", auth: "Login / register" };
+    if (S.ai) drawAI();
+    const PN = { battery: "Battery reviews", today: "Today", progress: "Progress", report: "Reports", interview: "Interview", auth: "Login / register" };
     const pages = Object.entries(o.views_by_page).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ label: PN[k] || k, value: v }));
     if (pages.length) hbars($("#cPages"), pages); else $("#cPages").innerHTML = `<div class="empty">Impressions start recording from this update.</div>`;
   }
 
+  function drawAI() {
+    const a = S.ai, t = a.today, pct = Math.min(100, (t.tokens / AI_BUDGET) * 100);
+    stackedBars($("#cAi"), { labels: a.daily.map((d) => d.d), series: [{ name: "Single test", color: "var(--s1)", values: a.daily.map((d) => d.single) }, { name: "Full battery", color: "var(--brass)", values: a.daily.map((d) => d.battery) }] });
+    const tone = pct >= 90 ? "var(--bad)" : pct >= 70 ? "var(--warn)" : "var(--olive)";
+    const recent = (a.recent || []).slice(0, 6).map((r) => `<div class="frow" style="grid-template-columns:1fr auto"><span>${esc(r.name || "—")} <span class="muted">#${r.chest_no ?? "—"} · ${r.kind === "battery" ? "Battery" : (TEST[r.test] || {}).code || ""}</span></span><span class="pill ${r.status === "done" ? "good" : r.status === "error" ? "bad" : "warn"}" ${r.error ? `data-tip="${esc(esc(r.error))}"` : ""}>${r.status === "done" ? num(r.tokens) + " tok" : r.status}</span></div>`).join("");
+    $("#cAiToday").innerHTML = `<div style="display:flex;flex-direction:column;gap:12px">
+      <div><div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:var(--display);font-size:30px;font-weight:700">${num(t.tokens)}</span><span class="muted" style="font-size:13px">of ${num(AI_BUDGET)} tokens</span></div>
+      <div class="fbar" style="height:10px;margin-top:6px" data-tip="${Math.round(pct)}% of today's budget used"><b style="width:${pct}%;background:${tone}"></b></div>
+      <div class="muted" style="font-size:12px;margin-top:4px">Single-test reviews pause at 70%; full batteries keep the rest.</div></div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;text-align:center"><div><b style="font-family:var(--display);font-size:24px">${num(t.single)}</b><div class="muted" style="font-size:12px">Single</div></div><div><b style="font-family:var(--display);font-size:24px">${num(t.battery)}</b><div class="muted" style="font-size:12px">Battery</div></div><div><b style="font-family:var(--display);font-size:24px;color:${t.errors ? "var(--bad)" : "inherit"}">${num(t.errors)}</b><div class="muted" style="font-size:12px">Failed</div></div></div>
+      ${recent ? `<div><div class="eyebrow" style="margin-bottom:6px">Latest</div><div class="funnel">${recent}</div></div>` : `<div class="empty" style="padding:8px 0">No reviews yet. They start once the Groq key is added.</div>`}</div>`;
+  }
   function viewCandidates() {
     if (!S.users) return `<div class="empty">Loading candidates…</div>`;
     const now = Date.now();

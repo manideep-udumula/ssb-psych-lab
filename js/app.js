@@ -36,7 +36,8 @@
   const today = () => localDate();
 
   /* ---------- state ---------- */
-  const S = { user: null, sessions: [], overall: null, choice: {}, view: "today", reportId: null, filter: "all", authMode: "login" };
+  const S = { user: null, sessions: [], overall: null, choice: {}, view: "today", reportId: null, filter: "all", authMode: "login", ai: { reviews: [], status: null, pending: {}, err: {} }, battery: null };
+  const BATTERY_ORDER = ["tat", "wat", "srt", "sd"], BATTERY_BREAK = 120;
   const dayNum = (d) => (S.user ? daysBetween(S.user.startDate, d || today()) + 1 : 1);
   const setNum = (day) => (((Math.max(1, day) - 1) % PROGRAM_DAYS) + 1);   // content set 1..30, cycles after day 30
   const assessed = () => S.sessions.filter((s) => s.assessment);
@@ -53,13 +54,14 @@
   /* ---------- routing ---------- */
   function setView(v, id) {
     S.view = v; S.reportId = id || null;
-    const h = v === "report" && id ? "report-" + id : v;
+    const h = (v === "report" || v === "battery") && id ? v + "-" + id : v;
     if (location.hash.slice(1) !== h) history.replaceState(null, "", "#" + h);
     render(); window.scrollTo(0, 0);
   }
   function readHash() {
     const h = location.hash.slice(1);
     if (h.startsWith("report-")) { S.view = "report"; S.reportId = h.slice(7); }
+    else if (h.startsWith("battery-")) { S.view = "battery"; S.reportId = h.slice(8); }
     else if (["today", "progress", "interview"].includes(h)) S.view = h; else S.view = "today";
   }
   window.addEventListener("hashchange", () => { readHash(); render(); });
@@ -71,15 +73,16 @@
     if (!S.user) { if (S.lastLogged !== "auth") { S.lastLogged = "auth"; Store.logView("auth"); } nav.hidden = true; $("#chest").textContent = "SSB PSYCH PRACTICE"; $("#userBtns").hidden = true; main.innerHTML = viewAuth(); bindAuth(); return; }
     nav.hidden = false; $("#userBtns").hidden = false; $("#hqBtn").hidden = !S.isAdmin;
     $("#chest").textContent = `CHEST NO. ${S.user.chest}`;
-    document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-current", b.dataset.view === (S.view === "report" ? "progress" : S.view) ? "page" : "false"));
+    document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-current", b.dataset.view === (S.view === "report" || S.view === "battery" ? "progress" : S.view) ? "page" : "false"));
     let html = "";
     if (!Store.persistent) html += `<div class="banner">This browser is blocking local storage, so progress will be lost when you close the page.</div>`;
     if (S.view === "today") html += viewToday();
     else if (S.view === "progress") html += viewProgress();
     else if (S.view === "report") html += viewReport();
+    else if (S.view === "battery") html += viewBattery();
     else html += viewInterview();
     main.innerHTML = html; bind(); feedbackBanner();
-    const key = S.view === "report" ? "report" : S.view;
+    const key = S.view;
     if (key !== S.lastLogged) { S.lastLogged = key; Store.logView(key); }
   }
 
@@ -127,6 +130,7 @@
   async function loadUser() {
     S.sessions = await Store.sessions(S.user.id); S.overall = await Store.overall(S.user.id);
     try { S.fbCount = await Store.feedbackCount(S.user.id); } catch (e) { S.fbCount = 0; }
+    S.battery = loadBattery(); S.ai = { reviews: [], status: null, pending: {}, err: {} }; loadAI();
     S.isAdmin = false; if (Store.kind === "supabase") Store.rpc("is_admin").then((v) => { S.isAdmin = v === true; const b = $("#hqBtn"); if (b) b.hidden = !S.isAdmin; }).catch(() => {});
   }
 
@@ -163,7 +167,8 @@
         <h1 style="font-size:30px;margin-top:4px">${esc(S.user.name)}</h1>
         <div class="muted" style="font-size:14px">${n > PROGRAM_DAYS ? `Program complete · now repeating set ${set}` : `Day ${n} of ${PROGRAM_DAYS}`} · ${esc(S.user.entry)} entry · ${todays.length ? `${todays.length} test${todays.length > 1 ? "s" : ""} today` : "No test taken today yet"} · ${streak()} day streak</div>
         <div class="strip" aria-label="30 day program">${strip}</div></div></div></section>
-    <section><div class="section-h" style="margin-bottom:12px"><h2>Today's tests</h2><span class="muted" style="font-size:14px">Day ${n} uses set ${pad(set)} of 30. Timings follow the SSB format.</span></div>
+    ${batteryCard()}
+    <section><div class="section-h" style="margin-bottom:12px"><h2>Single tests</h2><span class="muted" style="font-size:14px">Day ${n} uses set ${pad(set)} of 30. Timings follow the SSB format.</span></div>
       <div class="tests">${cards}</div></section>
     <section class="card"><div class="section-h" style="margin-bottom:14px"><h2>OLQ profile</h2>${lastA ? `<button class="btn ghost" data-report="${lastA.id}">Last report: ${TESTS[lastA.test].code} · ${r1(lastA.assessment.overall)}</button>` : ""}</div>
       ${a.length ? olqBlock(olqAverages(a)) : `<p class="muted" style="margin:0 0 16px">Your Officer Like Qualities profile appears here after your first test. The brass mark on each bar is 7.0, the level a recommended candidate usually shows.</p>` + olqBlock(null)}</section>`;
@@ -190,7 +195,7 @@
     return `<div class="row" style="justify-content:space-between"><button class="btn quiet" data-goto="progress">← All reports</button><span class="eyebrow">Day ${s.day} · Set ${pad(s.set)} · ${fmtDate(s.date)} · ${t.code}</span></div>
     <section class="card report-head">
       <div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="var(--line)" stroke-width="10"/><circle cx="60" cy="60" r="52" fill="none" stroke="var(--olive)" stroke-width="10" stroke-linecap="round" stroke-dasharray="${(C * ov) / 10} ${C}"/></svg><div class="score num">${r1(ov)}<small>/ 10</small></div></div>
-      <div style="display:flex;flex-direction:column;gap:8px"><div class="eyebrow">Psychologist's assessment</div><h1 style="font-size:30px">${t.name}</h1>
+      <div style="display:flex;flex-direction:column;gap:8px"><div class="eyebrow">Scored report</div><h1 style="font-size:30px">${t.name}</h1>
         <div><span class="pill ${scoreClass(ov)}">${A.grade}</span></div><p style="margin:0;max-width:65ch">${esc(A.summary)}</p></div>
     </section>
     <div class="kpis">
@@ -199,6 +204,7 @@
       <div class="kpi"><b>${Math.round(avg(s.responses.filter((x) => (x || "").trim()).map(words)) || 0)}</b><span>Avg words per response</span></div>
       <div class="kpi"><b>${fmtClock(s.timeUsed || 0)}</b><span>Time used</span></div>
     </div>
+    ${psychSection(s)}
     <section class="two">
       <div class="card"><h2 style="font-size:22px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Improvement areas</h2>
         <ul class="list">${A.improvements.map((i) => `<li class="imp"><b>${esc(i.olq)}</b><span>${esc(i.issue)}</span><div style="color:var(--olive);font-size:14px;margin-top:4px">Do this: ${esc(i.action)}</div></li>`).join("")}</ul></div>
@@ -254,6 +260,7 @@
       <div class="kpi"><b>${allResp ? Math.round((done / allResp) * 100) : 0}%</b><span>Responses completed</span></div>
       <div class="kpi"><b style="color:${delta == null ? "inherit" : delta >= 0 ? "var(--good)" : "var(--bad)"}">${delta == null ? "—" : (delta >= 0 ? "+" : "") + r1(delta)}</b><span>Change: first 3 vs last 3 tests</span></div>
     </div>
+    ${reviewsList()}
     <section class="card"><div class="section-h" style="margin-bottom:6px"><h2 style="font-size:22px">Overall score by test</h2><span class="muted" style="font-size:13px">Dashed line = 7.0 recommendable</span></div>
       ${a.length ? `<div class="chart" id="trend"></div>` : `<p class="muted">Take a test to start your trend line.</p>`}</section>
     <section class="card"><div class="section-h" style="margin-bottom:14px"><h2 style="font-size:22px">Average OLQ profile</h2><span class="muted" style="font-size:13px">${a.length} test${a.length === 1 ? "" : "s"} · weakest three marked Focus</span></div>${olqBlock(a.length ? olqAverages(a) : null)}</section>
@@ -355,6 +362,12 @@
     m.querySelectorAll("[data-start]").forEach((b) => b.addEventListener("click", () => startTest(b.dataset.start, S.choice[b.dataset.start] || TESTS[b.dataset.start].def)));
     m.querySelectorAll("[data-report]").forEach((b) => b.addEventListener("click", () => { S.filter = "all"; setView("report", b.dataset.report); }));
     m.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.goto)));
+    m.querySelectorAll("[data-psy]").forEach((b) => b.addEventListener("click", () => requestSingle(b.dataset.psy)));
+    m.querySelectorAll("[data-psyb]").forEach((b) => b.addEventListener("click", () => requestBattery(b.dataset.psyb)));
+    m.querySelectorAll("[data-battery]").forEach((b) => b.addEventListener("click", () => setView("battery", b.dataset.battery)));
+    m.querySelectorAll("[data-bstart]").forEach((b) => b.addEventListener("click", () => startBattery()));
+    m.querySelectorAll("[data-bresume]").forEach((b) => b.addEventListener("click", () => nextInBattery()));
+    m.querySelectorAll("[data-bquit]").forEach((b) => b.addEventListener("click", async () => { if (await confirmBox("Stop this battery?", "Tests you've finished stay as single-test reports. You can start a new battery any time.", "Stop battery")) { saveBattery(null); render(); } }));
     m.querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => { S.filter = b.dataset.filter; render(); }));
     const ob = $("#overallBtn"); if (ob) ob.addEventListener("click", async () => { S.overall = buildOverall(); render(); try { await Store.saveOverall(S.user.id, S.overall); } catch (e) { alertBanner("The overall assessment couldn't be saved; it will be rebuilt next time."); } });
     if (S.view === "progress") drawTrend();
@@ -445,6 +458,183 @@
     });
   }
 
+  /* ---------- full battery + Psychologist Review ---------- */
+  const bKey = () => "ssbpb:battery:" + (S.user ? S.user.id : "");
+  function loadBattery() { try { const b = JSON.parse(localStorage.getItem(bKey()) || "null"); return b && b.date === today() ? b : null; } catch (e) { return null; } }
+  function saveBattery(b) { S.battery = b; try { if (b) localStorage.setItem(bKey(), JSON.stringify(b)); else localStorage.removeItem(bKey()); } catch (e) {} }
+  const batterySessions = (bid) => S.sessions.filter((s) => s.assessment && s.assessment.battery === bid);
+  function batteriesDone() {
+    const m = new Map(); S.sessions.forEach((s) => { const b = s.assessment && s.assessment.battery; if (b) { if (!m.has(b)) m.set(b, {}); m.get(b)[s.test] = s; } });
+    return [...m.entries()].filter(([, t]) => BATTERY_ORDER.every((k) => t[k])).map(([id, t]) => ({ id, tests: t, date: t.sd.date, day: t.sd.day }));
+  }
+  const nextTest = () => BATTERY_ORDER.find((t) => !S.battery.done[t]);
+  function startBattery() { saveBattery({ id: "b" + Date.now().toString(36), date: today(), done: {} }); nextInBattery(); }
+  function nextInBattery() { if (!S.battery) return; const t = nextTest(); if (!t) return; startTest(t, TESTS[t].def, S.battery.id); }
+  const ICON = {
+    check: '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>',
+    lock: '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    pen: '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+  };
+  function bsteps(done, current) {
+    return `<div class="bsteps">${BATTERY_ORDER.map((t) => { const s = done[t]; const st = s ? "done" : t === current ? "now" : "";
+      const sc = s && typeof s === "object" && s.assessment ? `<span class="num" style="color:var(--${scoreClass(s.assessment.overall)});font-weight:600">${r1(s.assessment.overall)}</span>` : `<span class="spec">~${TESTS[t].minutes(TESTS[t].def)} min</span>`;
+      return `<div class="bstep ${st}"><span class="dot">${st === "done" ? ICON.check : st === "now" ? "NOW" : ""}</span><div style="flex:1"><b>${TESTS[t].code}</b><span class="muted">${TESTS[t].spec(TESTS[t].def)}</span></div>${sc}</div>`; }).join("")}</div>`;
+  }
+  function batteryCard() {
+    if (Store.kind !== "supabase") return "";
+    const todayDone = batteriesDone().filter((b) => b.date === today()).pop();
+    if (S.battery && !todayDone) {
+      const done = {}; Object.entries(S.battery.done).forEach(([t, id]) => (done[t] = S.sessions.find((s) => s.id === id) || true));
+      const nt = nextTest();
+      return `<section class="card battery"><div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--olive)">Full battery in progress</span><span class="pill" style="color:var(--brass)">${ICON.pen} Psychologist Review</span></div>
+        <h2 style="font-size:32px">Full Psych Battery</h2>${bsteps(done, nt)}
+        <div class="row"><button class="btn" data-bresume="1">Continue with ${TESTS[nt].code}</button><button class="btn quiet" data-bquit="1">Stop battery</button></div></section>`;
+    }
+    if (todayDone) {
+      const rv = findReview("battery", todayDone.id);
+      return `<section class="card battery"><div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--olive)">Today's full battery · done</span><span class="pill" style="color:var(--brass)">${ICON.pen} Psychologist Review</span></div>
+        <h2 style="font-size:32px">Full Psych Battery</h2>${bsteps(todayDone.tests, null)}
+        <div class="row"><button class="btn" data-battery="${todayDone.id}">${rv && rv.status === "done" ? "Read your Psychologist Review" : "Open Psychologist Review"}</button></div></section>`;
+    }
+    return `<section class="card battery"><div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--olive)">Recommended · board order</span><span class="pill" style="color:var(--brass)">${ICON.pen} Psychologist Review</span></div>
+      <h2 style="font-size:32px">Full Psych Battery</h2>
+      <p class="muted" style="margin:0">All four tests in one sitting, the way the board runs them. Finish all four today to unlock your full Psychologist Review.</p>
+      ${bsteps({}, null)}
+      <div class="spec" style="border-top:1px dashed var(--line);padding-top:10px">About 2 hours in total · 2-minute break between tests</div>
+      <div class="lockbox">${ICON.lock}<span><b>Psychologist Review is locked.</b> It opens after SD is submitted. One full review per day.</span></div>
+      <div><button class="btn" data-bstart="1">Start full battery</button></div></section>`;
+  }
+  function batteryBreak(prev, saveErr) {
+    const nt = nextTest(); let left = BATTERY_BREAK;
+    envShell("Full battery");
+    $("#envSub").textContent = `Test ${BATTERY_ORDER.indexOf(nt) + 1} of 4 next`;
+    const done = {}; Object.entries(S.battery.done).forEach(([t, id]) => (done[t] = S.sessions.find((s) => s.id === id) || true));
+    const answered = prev.responses.filter((x) => (x || "").trim()).length;
+    $("#envIn").innerHTML = `${saveErr ? `<div class="banner" id="bSaveErr">Your ${TESTS[prev.test].code} couldn't be saved (${esc(saveErr.message || "connection problem")}). <button class="linkbtn" id="bRetry">Retry</button></div>` : ""}
+      <div class="row" style="color:var(--good);font-weight:600"><span class="bstep done" style="display:inline-flex"><span class="dot">${ICON.check}</span></span>${TESTS[prev.test].code} submitted · ${answered} of ${prev.count} answered</div>
+      <div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="eyebrow">Up next</div><h2 style="font-size:30px">${TESTS[nt].name}</h2><p class="muted" style="margin:0">${TESTS[nt].spec(TESTS[nt].def)}.</p>
+        <div style="text-align:center;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:14px 0"><div class="eyebrow">Break</div><div class="brk num" id="brk">${fmtClock(left)}</div><div class="muted" style="font-size:13px">${TESTS[nt].code} starts on its own when the break ends</div></div>
+        <button class="btn" id="bNext">Start ${TESTS[nt].code} now</button></div>
+      <div class="card" style="display:flex;flex-direction:column;gap:10px"><div class="eyebrow">Battery progress</div>${bsteps(done, nt)}</div>
+      <p class="muted" style="font-size:13px;margin:0">If you leave now, finished tests stay as single-test reports. The full Psychologist Review needs all four today.</p>`;
+    RUN = { paused: false, battery: S.battery.id, brk: true };
+    const go = () => { if (RUN && RUN.timer) clearInterval(RUN.timer); RUN = null; nextInBattery(); };
+    $("#bNext").onclick = go;
+    const rb = $("#bRetry"); if (rb) rb.onclick = async () => { rb.textContent = "Saving…"; try { await Store.saveSession(S.user.id, prev); S.unsaved = null; $("#bSaveErr").textContent = "Saved."; } catch (e) { rb.textContent = "Retry"; } };
+    $("#envExit").onclick = async () => { RUN.paused = true; const ok = await confirmBox("Leave the battery?", "Finished tests stay as single-test reports. You can continue this battery later today from the Today page.", "Leave"); if (ok) endRun(); else RUN.paused = false; };
+    tick((dt) => { left -= dt; const b = $("#brk"); if (b) b.textContent = fmtClock(left); setBar(1 - left / BATTERY_BREAK); if (left <= 0) go(); });
+  }
+
+  async function loadAI() {
+    if (Store.kind !== "supabase") return;
+    try { S.ai.reviews = await Store.aiReviews(); } catch (e) {}
+    try { S.ai.status = await Store.ai("status"); } catch (e) { S.ai.status = null; }
+    if (S.user && !RUN && ["report", "battery", "progress", "today"].includes(S.view)) render();
+  }
+  const findReview = (kind, key) => S.ai.reviews.find((r) => r.kind === kind && (kind === "battery" ? r.battery_id === key : r.session_id === key));
+  function stimuli(s) {
+    const items = itemsFor(s.test, s.set, s.count);
+    return items.map((it) => s.test === "tat" ? (it.blank ? "Blank slide" : tatPic(it.id).desc) : s.test === "wat" ? it.w : s.test === "srt" ? it.t : "");
+  }
+  async function runReview(key, call) {
+    S.ai.pending[key] = Date.now(); delete S.ai.err[key]; render();
+    try {
+      const j = await call(); const rv = j.review;
+      S.ai.reviews = [rv, ...S.ai.reviews.filter((r) => r.id !== rv.id)];
+      Store.ai("status").then((st) => (S.ai.status = st)).catch(() => {});
+    } catch (e) { S.ai.err[key] = { msg: e.message, code: e.code }; }
+    delete S.ai.pending[key]; if (!RUN) render();
+  }
+  function requestSingle(sid) {
+    const s = S.sessions.find((x) => x.id === sid); if (!s || S.ai.pending[sid]) return;
+    runReview(sid, () => Store.ai("single", { session_id: sid, items: stimuli(s) }));
+  }
+  function requestBattery(bid, auto) {
+    if (S.ai.pending[bid]) return;
+    if (auto && S.ai.status && !S.ai.status.configured) return;
+    const by = {}; batterySessions(bid).forEach((s) => (by[s.test] = s));
+    const items = {}; ["tat", "wat", "srt"].forEach((t) => { if (by[t]) items[t] = stimuli(by[t]); });
+    runReview(bid, () => Store.ai("battery", { battery_id: bid, items }));
+  }
+  const gradeCls = (g) => { g = String(g || ""); return /not yet|needs work/i.test(g) ? "bad" : /strong|promising|^recommended/i.test(g) ? "good" : "warn"; };
+  function ring(ov, size) {
+    const C = 2 * Math.PI * 52;
+    return `<div class="ring" style="width:${size}px;height:${size}px"><svg viewBox="0 0 120 120" role="img" aria-label="Overall ${r1(ov)} out of 10"><circle cx="60" cy="60" r="52" fill="none" stroke="var(--line)" stroke-width="10"/><circle cx="60" cy="60" r="52" fill="none" stroke="var(--olive)" stroke-width="10" stroke-linecap="round" stroke-dasharray="${(C * (ov || 0)) / 10} ${C}"/></svg><div class="score num">${r1(ov)}<small>/ 10</small></div></div>`;
+  }
+  function writingCard(kind) {
+    const steps = kind === "battery" ? ["Reading your TAT stories", "Judging your SRT reactions", "Scanning your WAT responses", "Reading your self description", "Writing your final review"] : ["Reading your answers", "Rating the 15 OLQs", "Writing your review"];
+    return `<section class="card psy" aria-live="polite"><div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--brass)">Psychologist Review</span><span class="pill" style="color:var(--brass)">Writing…</span></div>
+      <h2 style="font-size:26px">Your psychologist is writing</h2>
+      <ul class="list" style="gap:6px">${steps.map((t) => `<li class="muted" style="font-size:14px">${t}</li>`).join("")}</ul>
+      <div class="indet"><b></b></div><div class="spec">${kind === "battery" ? "Usually about a minute" : "Usually 10–20 seconds"}. You can keep reading your scored report meanwhile.</div></section>`;
+  }
+  function reviewHTML(rv, kind) {
+    const r = rv.result || {}; const grade = r.recommendation || r.grade;
+    const strengths = r.top_strengths || r.strengths || [], imps = r.priority_improvements || r.improvements || [];
+    const ex = (list) => (list || []).filter((e) => e && (e.comment || e.quote)).map((e) => `<div class="resp"><div class="idx num">${e.item ? pad(e.item) : "·"}</div><div style="display:flex;flex-direction:column;gap:6px">${e.quote ? `<div class="quote">“${esc(e.quote)}”</div>` : ""}<div style="font-size:14px">${esc(e.comment || "")}</div>${e.better ? `<div class="better">Better: ${esc(e.better)}</div>` : ""}</div></div>`).join("");
+    const perTest = kind === "battery" && r.tests ? BATTERY_ORDER.filter((t) => r.tests[t]).map((t) => { const d = r.tests[t]; return `<div style="border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:8px"><b style="font-family:var(--display);font-size:20px;letter-spacing:.04em">${TESTS[t].code}</b><ul style="margin:0;padding-left:18px;font-size:14px">${(d.observations || []).map((o) => `<li>${esc(o)}</li>`).join("")}</ul>${ex((d.examples || []).slice(0, 2))}</div>`; }).join("") : "";
+    return `<section class="card psy"><div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--brass)">Psychologist Review</span><span class="pill" style="color:var(--brass)">${ICON.pen} ${kind === "battery" ? "Full battery" : TESTS[rv.test] ? TESTS[rv.test].code : ""}</span></div>
+      <div class="report-head" style="padding:0;border:0;background:none">${ring(r.overall, 112)}<div style="display:flex;flex-direction:column;gap:8px"><h2 style="font-size:28px">Personality profile</h2>${grade ? `<div><span class="pill ${gradeCls(grade)}">${esc(grade)}</span></div>` : ""}</div></div>
+      ${r.summary ? `<p style="margin:0;max-width:70ch">${esc(r.summary)}</p>` : ""}
+      ${r.consistency ? `<div class="lockbox" style="display:block"><b>Consistency:</b> ${esc(r.consistency)}</div>` : ""}</section>
+    ${r.olq && Object.keys(r.olq).length ? `<section class="card"><div class="section-h" style="margin-bottom:14px"><h2>OLQs · Psychologist's rating</h2><span class="muted" style="font-size:13px">Brass mark = 7.0</span></div>${olqBlock(r.olq)}</section>` : ""}
+    <section class="two">
+      <div class="card"><h2 style="font-size:22px;margin-bottom:12px">Strengths</h2><ul class="list">${strengths.map((x) => `<li class="str">${esc(x)}</li>`).join("") || `<li class="muted">—</li>`}</ul></div>
+      <div class="card"><h2 style="font-size:22px;margin-bottom:12px">Priority improvements</h2><ul class="list">${imps.map((i) => `<li class="imp"><b>${esc(i.area || "")}</b><span>${esc(i.why || "")}</span>${i.practice ? `<div style="color:var(--olive);font-size:14px;margin-top:4px"><b>Practise:</b> ${esc(i.practice)}</div>` : ""}</li>`).join("") || `<li class="muted">—</li>`}</ul></div>
+    </section>
+    ${kind === "battery" ? (perTest ? `<section class="card" style="display:flex;flex-direction:column;gap:12px"><h2 style="font-size:22px">What each test showed</h2>${perTest}</section>` : "")
+      : `<section class="card" style="display:flex;flex-direction:column;gap:12px"><h2 style="font-size:22px">What the psychologist noticed</h2>${(r.observations || []).length ? `<ul style="margin:0;padding-left:18px">${r.observations.map((o) => `<li>${esc(o)}</li>`).join("")}</ul>` : ""}${ex(r.examples)}</section>`}
+    ${(r.seven_day_plan || []).length ? `<section class="card"><h2 style="font-size:22px;margin-bottom:12px">Your next 7 days</h2><ol class="plan">${r.seven_day_plan.map((p) => `<li>${esc(p)}</li>`).join("")}</ol></section>` : ""}
+    <p class="muted" style="font-size:12px;margin:0">Prepared by the SSB Psych Lab psychologist, an AI model guided by the SSB OLQ framework, and cross-checked with your scored reports. Use it as practice guidance, not a board verdict.</p>`;
+  }
+  function psychGate(key, kind, btnAttr) {
+    const st = S.ai.status, err = S.ai.err[key];
+    if (S.ai.pending[key]) return writingCard(kind);
+    if (st && !st.configured) return `<section class="card psy"><span class="eyebrow" style="color:var(--brass)">Psychologist Review</span><h2 style="font-size:24px">Opening soon</h2><p class="muted" style="margin:0">Your psychologist is getting ready. Reviews will appear here once they open; your scored report below is ready now.</p></section>`;
+    const left = st ? Math.max(0, st.limits.single - st.used.single) : null;
+    const blocked = kind === "single" && st && (left === 0 || !st.singleOpen);
+    const note = kind === "single" ? (st ? (left === 0 ? "You've used today's 3 single-test reviews. They reset daily." : !st.singleOpen ? "Today's Psychologist Reviews are fully booked. Back tomorrow." : `${left} of ${st.limits.single} single-test reviews left today`) : "3 single-test reviews a day")
+      : "One full review per day";
+    return `<section class="card psy"><div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--brass)">Psychologist Review</span><span class="pill" style="color:var(--brass)">${ICON.pen} ${kind === "battery" ? "Full battery" : "This test"}</span></div>
+      <h2 style="font-size:26px">${kind === "battery" ? "Get your full Psychologist Review" : "Want a psychologist's reading of this test?"}</h2>
+      <p class="muted" style="margin:0">${kind === "battery" ? "Your psychologist reads all four tests together, rates your 15 OLQs, checks whether the tests show one consistent personality, and gives you a 7-day plan." : "Your psychologist reads every answer, rates your OLQs, quotes what worked and what didn't, and shows how to improve."}</p>
+      ${err ? `<div class="banner" role="alert" style="margin:0">${esc(err.msg)}</div>` : ""}
+      <div class="row"><button class="btn" ${btnAttr} ${blocked ? "disabled" : ""}>${err && err.code === "ai_failed" ? "Try again" : "Get Psychologist Review"}</button><span class="spec">${note}</span></div></section>`;
+  }
+  function psychSection(s) {
+    if (Store.kind !== "supabase") return "";
+    if (s.assessment && s.assessment.battery) {
+      const complete = batteriesDone().some((b) => b.id === s.assessment.battery);
+      return `<div class="banner" style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><span>This test is part of a full battery${complete ? "." : " that wasn't finished."}</span>${complete ? `<button class="btn ghost" data-battery="${s.assessment.battery}">Open full Psychologist Review</button>` : ""}</div>`;
+    }
+    const rv = findReview("single", s.id);
+    if (rv && rv.status === "done") return reviewHTML(rv, "single");
+    return psychGate(s.id, "single", `data-psy="${s.id}"`);
+  }
+  function viewBattery() {
+    const bid = S.reportId, list = batterySessions(bid);
+    if (!list.length) return `<div class="card"><p>That battery isn't in your file.</p><button class="btn" data-goto="progress">Go to Progress</button></div>`;
+    const by = {}; list.forEach((s) => (by[s.test] = s));
+    const complete = BATTERY_ORDER.every((t) => by[t]);
+    const tiles = BATTERY_ORDER.map((t) => by[t] ? `<button class="kpi click" data-report="${by[t].id}" style="text-align:left;cursor:pointer;font:inherit"><b style="color:var(--${scoreClass(by[t].assessment.overall)})">${r1(by[t].assessment.overall)}</b><span><b style="font-family:var(--display);font-size:18px;color:var(--ink)">${TESTS[t].code}</b> · scored report ›</span></button>` : `<div class="kpi"><b class="muted">—</b><span>${TESTS[t].code} · not taken</span></div>`).join("");
+    const rv = findReview("battery", bid);
+    const first = list[0];
+    return `<div class="row" style="justify-content:space-between"><button class="btn quiet" data-goto="progress">← All reports</button><span class="eyebrow">Day ${first.day} · ${fmtDate(first.date)} · Full battery</span></div>
+      <div><div class="eyebrow">Full Psych Battery</div><h1 style="font-size:32px;margin-top:4px">${complete ? "All four tests done" : "Battery not finished"}</h1></div>
+      <div class="kpis">${tiles}</div>
+      ${!complete ? `<div class="banner">The full Psychologist Review needs all four tests from one sitting.</div>` : rv && rv.status === "done" ? reviewHTML(rv, "battery") : psychGate(bid, "battery", `data-psyb="${bid}"`)}`;
+  }
+  function reviewsList() {
+    if (Store.kind !== "supabase") return "";
+    const done = S.ai.reviews.filter((r) => r.status === "done");
+    const rows = done.map((r) => { const target = r.kind === "battery" ? `data-battery="${r.battery_id}"` : `data-report="${r.session_id}"`; const g = r.result && (r.result.recommendation || r.result.grade);
+      return `<tr class="click" ${target}><td>D${pad(r.day || 0)}</td><td>${fmtDate(r.date)}</td><td><b>${r.kind === "battery" ? "Full battery" : TESTS[r.test] ? TESTS[r.test].code : ""}</b></td><td>${g ? `<span class="pill ${gradeCls(g)}">${esc(g)}</span>` : ""}</td><td><span class="pill ${scoreClass(r.result && r.result.overall)}">${r1(r.result && r.result.overall)}</span></td></tr>`; }).join("");
+    const bd = batteriesDone().filter((b) => !findReview("battery", b.id));
+    const pend = bd.map((b) => `<tr class="click" data-battery="${b.id}"><td>D${pad(b.day)}</td><td>${fmtDate(b.date)}</td><td><b>Full battery</b></td><td><span class="pill neutral">Not requested</span></td><td>—</td></tr>`).join("");
+    if (!rows && !pend) return "";
+    return `<section class="card"><div class="section-h" style="margin-bottom:8px"><h2 style="font-size:22px">Psychologist Reviews</h2><span class="muted" style="font-size:13px">${done.length} review${done.length === 1 ? "" : "s"}</span></div><div class="tablewrap"><table class="t"><thead><tr><th>Day</th><th>Date</th><th>For</th><th>Verdict</th><th>OLQ</th></tr></thead><tbody>${rows}${pend}</tbody></table></div></section>`;
+  }
+
   /* ---------- test environment ---------- */
   let RUN = null;
   function envShell(title) {
@@ -452,9 +642,9 @@
     $("#envExit").onclick = async () => { const was = RUN && RUN.paused; if (RUN) RUN.paused = true; const ok = await confirmBox("Leave this test?", "Your answers so far will be thrown away. At the board the test doesn't stop, so try to finish it.", "Leave test", true); if (ok) endRun(); else if (RUN) RUN.paused = was; };
   }
   function endRun() { if (RUN && RUN.timer) clearInterval(RUN.timer); RUN = null; $("#layer").innerHTML = ""; render(); }
-  function startTest(test, count) {
+  function startTest(test, count, battery) {
     const n = dayNum(), set = setNum(n);
-    RUN = { test, count, set, day: n, items: itemsFor(test, set, count), title: TESTS[test].code, paused: false, i: 0 };
+    RUN = { test, count, set, day: n, items: itemsFor(test, set, count), title: battery ? `${TESTS[test].code} · Full battery ${BATTERY_ORDER.indexOf(test) + 1}/4` : TESTS[test].code, paused: false, i: 0, battery: battery || null };
     RUN.responses = RUN.items.map(() => "");
     if (test === "tat") RUN.items.forEach((it) => { if (!it.blank) { const im = new Image(); im.src = tatPic(it.id).file; } }); // preload
     envShell(RUN.title); instructions();
@@ -549,12 +739,22 @@
     if (!RUN || RUN.finishing) return; RUN.finishing = true; clearInterval(RUN.timer);
     const A = assess({ test: RUN.test, items: RUN.items, responses: RUN.responses }, { tatBank: window.TAT_BANK });
     const stored = { ...A, items: A.items.map((x) => ({ i: x.i, tag: x.tag, score: x.score })) }; // notes are regenerated on view
+    if (RUN.battery) stored.battery = RUN.battery;
     const s = { id: "s" + Date.now().toString(36), test: RUN.test, count: RUN.count, set: RUN.set, day: RUN.day, date: today(), createdAt: Date.now(),
       responses: RUN.responses.map((x) => x || ""), timeUsed: Math.round((Date.now() - RUN.started) / 1000), assessment: stored };
     S.sessions.push(s);
     let saveErr = null;
     try { await Store.saveSession(S.user.id, s); } catch (e) { saveErr = e; }
-    RUN = null; $("#layer").innerHTML = ""; S.filter = "all"; setView("report", s.id);
+    const bid = RUN.battery; RUN = null; $("#layer").innerHTML = ""; S.filter = "all";
+    if (bid && S.battery && S.battery.id === bid) {
+      S.battery.done[s.test] = s.id; saveBattery(S.battery);
+      if (BATTERY_ORDER.some((t) => !S.battery.done[t])) { if (saveErr) S.unsaved = s; batteryBreak(s, saveErr); return; }
+      saveBattery(null); setView("battery", bid);
+      if (!saveErr) requestBattery(bid, true);
+      else alertBanner(`Your SD couldn't be saved (${saveErr.message || "connection problem"}). Press Retry, then ask for your Psychologist Review.`, async () => { await Store.saveSession(S.user.id, s); S.unsaved = null; });
+      return;
+    }
+    setView("report", s.id);
     if (saveErr) { S.unsaved = s; alertBanner(`This test couldn't be saved (${saveErr.message || "connection problem"}). Your report is shown below; keep this tab open and press Retry.`, async () => { await Store.saveSession(S.user.id, s); S.unsaved = null; }); }
   }
   function alertBanner(msg, retry) {
