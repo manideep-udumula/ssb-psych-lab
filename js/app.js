@@ -420,20 +420,18 @@
       if (!f.rating && !f.liked && !f.improve && !f.issues) { $("#fbErr", m).textContent = "Pick a rating or write a line before sending."; return; }
       const btn = $("#fbSend", m); btn.disabled = true; btn.textContent = "Sending…";
       const meta = { chest_no: S.user.chest, tests_taken: S.sessions.length, last_test: lastTxt, device: navigator.userAgent.slice(0, 180) };
-      let emailed = false;
+      // 1) save to the database first: this is fast and is the record of truth
+      let fbId = null;
+      try { fbId = await Store.saveFeedback(S.user.id, { ...f, ...meta, emailed: false }); }
+      catch (err) { btn.disabled = false; btn.textContent = "Send feedback"; $("#fbErr", m).textContent = "Couldn't send right now. Check your connection and try again."; return; }
+      // 2) email in the background: the candidate never waits for it
       if (FB_EMAIL) {
-        try {
-          const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 12000);
-          const r = await fetch(`https://formsubmit.co/ajax/${FB_EMAIL}`, { method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify({ _subject: `SSB Psych Lab feedback · Chest ${S.user.chest} · ${f.rating || "-"}/5`, _template: "table", _captcha: "false", _replyto: S.user.email || "",
-              Name: S.user.name, "Chest No": S.user.chest, Email: S.user.email || "", Entry: S.user.entry, Rating: f.rating ? f.rating + " / 5" : "-", Recommend: f.recommend || "-",
-              "What worked": f.liked || "-", "Improve": f.improve || "-", "Broken / confusing": f.issues || "-", "Tests taken": meta.tests_taken, "Last test": meta.last_test, Device: meta.device }) });
-          clearTimeout(t); emailed = r.ok;
-        } catch (err) { emailed = false; }
+        fetch(`https://formsubmit.co/ajax/${FB_EMAIL}`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ _subject: `SSB Psych Lab feedback · Chest ${S.user.chest} · ${f.rating || "-"}/5`, _template: "table", _captcha: "false", _replyto: S.user.email || "",
+            Name: S.user.name, "Chest No": S.user.chest, Email: S.user.email || "", Entry: S.user.entry, Rating: f.rating ? f.rating + " / 5" : "-", Recommend: f.recommend || "-",
+            "What worked": f.liked || "-", "Improve": f.improve || "-", "Broken / confusing": f.issues || "-", "Tests taken": meta.tests_taken, "Last test": meta.last_test, Device: meta.device }) })
+          .then((r) => { if (r.ok) return Store.markFeedbackEmailed(fbId); }).catch(() => {});
       }
-      let saved = false;
-      try { await Store.saveFeedback(S.user.id, { ...f, ...meta, emailed }); saved = true; } catch (err) {}
-      if (!emailed && !saved) { btn.disabled = false; btn.textContent = "Send feedback"; $("#fbErr", m).textContent = "Couldn't send right now. Check your connection and try again."; return; }
       S.fbCount = (S.fbCount || 0) + 1; closeModal(); const bar = $("#fbBar"); if (bar) bar.remove();
       const ok = modal(`<h2 style="font-size:24px">Thank you!</h2><p style="margin:0">Your feedback reached the team. It goes straight into the next update.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="fbOk">Close</button></div>`);
       $("#fbOk", ok).onclick = closeModal;

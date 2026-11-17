@@ -99,7 +99,8 @@
       async overall() { const r = await rest(`overall_reports?select=report`); return r[0] ? r[0].report : null; },
       async saveOverall(uid, o) { await rest(`overall_reports`, { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: uid, report: o, updated_at: new Date().toISOString() }) }); },
       async feedbackCount() { const r = await rest(`feedback?select=id`); return r.length; },
-      async saveFeedback(uid, f) { await rest(`feedback`, { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ user_id: uid, ...f }) }); },
+      async saveFeedback(uid, f) { const r = await rest(`feedback?select=id`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ user_id: uid, ...f }) }); return r && r[0] ? r[0].id : null; },
+      async markFeedbackEmailed(id) { if (id) await rest(`feedback?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ emailed: true }) }); },
     };
   }
 
@@ -139,7 +140,8 @@
       async overall(uid) { return lget("u:" + uid + ":overall", null); },
       async saveOverall(uid, o) { lset("u:" + uid + ":overall", o); },
       async feedbackCount(uid) { return lget("u:" + uid + ":feedback", []).length; },
-      async saveFeedback(uid, f) { const l = lget("u:" + uid + ":feedback", []); l.push({ ...f, created_at: new Date().toISOString() }); lset("u:" + uid + ":feedback", l); },
+      async saveFeedback(uid, f) { const l = lget("u:" + uid + ":feedback", []); l.push({ ...f, created_at: new Date().toISOString() }); lset("u:" + uid + ":feedback", l); return l.length; },
+      async markFeedbackEmailed() {},
     };
   }
 
