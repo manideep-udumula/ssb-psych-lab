@@ -364,7 +364,9 @@
     await Store.init();
     const me = await Store.currentUser();
     if (!me) return showLogin();
-    let ok = false; try { ok = await Store.rpc("is_admin"); } catch (e) {}
+    if (typeof Store.rpc !== "function") { $("#hq").innerHTML = `<div class="panel"><h3>Old version cached</h3><p class="muted" style="margin:0">Your browser is using an older copy of the site. Press <b>Ctrl+Shift+R</b> (or Cmd+Shift+R on Mac) to reload.</p></div>`; return; }
+    let ok = false, err = null; try { ok = (await Store.rpc("is_admin")) === true; } catch (e) { err = e; }
+    if (err) { $("#hq").innerHTML = `<div class="panel"><h3>Couldn't check admin access</h3><p class="muted" style="margin:0">${esc(err.message)}. Reload the page to try again.</p></div>`; return; }
     if (!ok) { Store.logout(); return showLogin(`<b>${esc(me.email)}</b> isn't an admin account. Log in with the admin account.`); }
     $("#hqActions").hidden = false; $("#hqNav").hidden = false;
     $("#hq").innerHTML = `<div class="loading"><div class="spinner"></div><div class="muted">Loading HQ…</div></div>`;
