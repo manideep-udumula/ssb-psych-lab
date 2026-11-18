@@ -26,6 +26,7 @@
   function SupabaseBackend() {
     const URL_ = CFG.supabaseUrl.replace(/\/+$/, ""), KEY = CFG.supabaseAnonKey;
     let auth = lget("sb_auth", null); // {access_token, refresh_token, expires_at, user:{id,email}}
+    let recovery = null;              // tokens from a password-reset link, held until the new password is set
 
     const saveAuth = (a) => { auth = a; if (a) lset("sb_auth", a); else ldel("sb_auth"); };
     const fromTokenResponse = (j) => ({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + (j.expires_in || 3600) * 1000, user: { id: j.user.id, email: j.user.email } });
@@ -70,12 +71,36 @@
         if (h.includes("access_token=")) {
           const q = new URLSearchParams(h);
           const at = q.get("access_token"), rt = q.get("refresh_token");
+          const expires_at = Date.now() + (+q.get("expires_in") || 3600) * 1000;
+          if (at && rt && q.get("type") === "recovery") {
+            // Password-reset link: do not log in yet; the user must choose a new password first
+            recovery = { access_token: at, refresh_token: rt, expires_at };
+            history.replaceState(null, "", location.pathname + "#reset");
+            return;
+          }
           if (at && rt) {
             const r = await fetch(`${URL_}/auth/v1/user`, { headers: { apikey: KEY, Authorization: `Bearer ${at}` } });
-            if (r.ok) { const u = await r.json(); saveAuth({ access_token: at, refresh_token: rt, expires_at: Date.now() + (+q.get("expires_in") || 3600) * 1000, user: { id: u.id, email: u.email } }); }
+            if (r.ok) { const u = await r.json(); saveAuth({ access_token: at, refresh_token: rt, expires_at, user: { id: u.id, email: u.email } }); }
           }
           history.replaceState(null, "", location.pathname + "#today");
         }
+      },
+      isRecovery() { return !!recovery; },
+      async requestReset(email) {
+        // Supabase emails a link that brings the user back to this page (type=recovery).
+        // It answers the same way whether or not the email has an account, so nobody can probe for accounts.
+        const to = encodeURIComponent(location.origin + location.pathname);
+        const r = await fetch(`${URL_}/auth/v1/recover?redirect_to=${to}`, { method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim().toLowerCase() }) });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); if (r.status === 429) throw new Error("Please wait a minute before requesting another link."); throw new Error(msg(j, "Couldn't send the reset link. Try again.")); }
+      },
+      async completeRecovery(password) {
+        if (!recovery) throw new Error("This reset link has expired. Request a new one.");
+        const r = await fetch(`${URL_}/auth/v1/user`, { method: "PUT", headers: { apikey: KEY, "Content-Type": "application/json", Authorization: `Bearer ${recovery.access_token}` }, body: JSON.stringify({ password }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(msg(j, "This reset link has expired. Request a new one."));
+        saveAuth({ access_token: recovery.access_token, refresh_token: recovery.refresh_token, expires_at: recovery.expires_at, user: { id: j.id, email: j.email } });
+        recovery = null;
+        return profile();
       },
       async register({ name, email, entry, password }) {
         const j = await authCall("signup", { email: email.trim().toLowerCase(), password, data: { name: name.trim(), entry } });
@@ -165,6 +190,7 @@
       async saveOverall(uid, o) { lset("u:" + uid + ":overall", o); },
       async feedbackCount(uid) { return lget("u:" + uid + ":feedback", []).length; },
       logView() {}, isLoggedIn() { return !!lget("current", null); }, async rpc() { throw new Error("Admin dashboard needs Supabase."); }, async ai() { const e = new Error("Psychologist Reviews need an online account."); e.code = "local"; throw e; }, async aiReviews() { return []; },
+      isRecovery() { return false; }, async requestReset() { throw new Error("Password reset needs an online account."); }, async completeRecovery() { throw new Error("Password reset needs an online account."); },
       async saveFeedback(uid, f) { const l = lget("u:" + uid + ":feedback", []); l.push({ ...f, created_at: new Date().toISOString() }); lset("u:" + uid + ":feedback", l); return l.length; },
       async markFeedbackEmailed() {},
     };

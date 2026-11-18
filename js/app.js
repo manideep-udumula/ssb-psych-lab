@@ -36,7 +36,8 @@
   const today = () => localDate();
 
   /* ---------- state ---------- */
-  const S = { user: null, sessions: [], overall: null, choice: {}, view: "today", reportId: null, filter: "all", authMode: "login", ai: { reviews: [], status: null, pending: {}, err: {} }, battery: null };
+  const S = { user: null, sessions: [], overall: null, choice: {}, view: "today", reportId: null, filter: "all", page: "landing", notice: "", last: 0, authMode: "login", ai: { reviews: [], status: null, pending: {}, err: {} }, battery: null };
+  const GUEST_ROUTES = ["login", "register", "forgot", "reset"];   // visitor-only pages; "reset" is the link from the reset email
   const BATTERY_ORDER = ["tat", "wat", "srt", "sd"], BATTERY_BREAK = 120;
   const dayNum = (d) => (S.user ? daysBetween(S.user.startDate, d || today()) + 1 : 1);
   const setNum = (day) => (((Math.max(1, day) - 1) % PROGRAM_DAYS) + 1);   // content set 1..30, cycles after day 30
@@ -60,6 +61,7 @@
   }
   function readHash() {
     const h = location.hash.slice(1);
+    if (!S.user) { S.page = GUEST_ROUTES.includes(h) ? "auth" : "landing"; if (S.page === "auth") S.authMode = h === "reset" ? "recovery" : h; }
     if (h.startsWith("report-")) { S.view = "report"; S.reportId = h.slice(7); }
     else if (h.startsWith("battery-")) { S.view = "battery"; S.reportId = h.slice(8); }
     else if (["today", "progress", "interview"].includes(h)) S.view = h; else S.view = "today";
@@ -70,7 +72,16 @@
   function render() {
     const nav = $("#nav"), main = $("#main");
     document.body.classList.toggle("authed", !!S.user);
-    if (!S.user) { if (S.lastLogged !== "auth") { S.lastLogged = "auth"; Store.logView("auth"); } nav.hidden = true; $("#chest").textContent = "SSB PSYCH PRACTICE"; $("#userBtns").hidden = true; main.innerHTML = viewAuth(); bindAuth(); return; }
+    $("#guestBtns").hidden = !!S.user;
+    if (!S.user) {
+      if (S.authMode === "recovery" && !Store.isRecovery()) { S.authMode = "forgot"; S.notice = "That reset link has expired or was already used. Request a new one."; }
+      const key = S.page === "auth" ? "auth-" + S.authMode : "landing";
+      if (S.lastLogged !== key) { S.lastLogged = key; Store.logView(S.page === "auth" ? "auth" : "landing"); }
+      nav.hidden = true; $("#chest").textContent = "SSB PSYCH PRACTICE"; $("#userBtns").hidden = true;
+      main.innerHTML = S.page === "auth" ? viewAuth() : viewLanding();
+      if (S.page === "auth") bindAuth();
+      return;
+    }
     nav.hidden = false; $("#userBtns").hidden = false; $("#hqBtn").hidden = !S.isAdmin;
     $("#chest").textContent = `CHEST NO. ${S.user.chest}`;
     document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-current", b.dataset.view === (S.view === "report" || S.view === "battery" ? "progress" : S.view) ? "page" : "false"));
@@ -87,41 +98,121 @@
   }
 
   /* ---------- auth ---------- */
+  /* ---------- home page: what every visitor sees; any action asks them to log in or register ---------- */
+  function viewLanding() {
+    const cards = Object.entries(TESTS).map(([, t]) => `<button class="card test landing-test" type="button" data-gate="register">
+        <div><div class="code">${t.code}</div><div class="tname">${t.name}</div></div>
+        <div class="spec">${t.spec(t.def)} · ~${t.minutes(t.def)} min</div>
+        <span class="linkish">Register to take this test →</span></button>`).join("");
+    return `<section class="card hero">
+        <div class="eyebrow">SSB psychology practice · 30-day program</div>
+        <h1 class="hero-h">Practise the board the way it is run.</h1>
+        <p class="lead">Daily TAT, WAT, SRT and Self Description in real board timings, then a psychologist's review of how each response reads against the Officer Like Qualities.</p>
+        <div class="row" style="gap:10px"><button class="btn" type="button" data-gate="register">Register and get your chest number</button><button class="btn quiet" type="button" data-gate="login">Log in</button></div>
+        <p class="muted" style="font-size:13px;margin:0">Free to start. Your chest number is allotted when you register.</p>
+      </section>
+      <section><div class="section-h" style="margin-bottom:12px"><h2>The four tests</h2><span class="muted" style="font-size:14px">Register to start any test</span></div><div class="tests">${cards}</div></section>
+      <section class="two">
+        <div class="card"><h2 class="sub">How the 30 days work</h2><ol class="list">
+          <li>Register, then take your tests each day at your own pace.</li>
+          <li>Every response is scored against the OLQs, with what to practise next.</li>
+          <li>Run the full battery to get one psychologist's review across all four tests.</li></ol></div>
+        <div class="card"><h2 class="sub">What you get</h2><ul class="list">
+          <li class="str">An OLQ profile that builds up over the program.</li>
+          <li class="str">Improvement areas, with a model of a stronger response.</li>
+          <li class="str">Progress across 30 days, with your streak and test history.</li></ul></div>
+      </section>
+      <p class="muted" style="font-size:13px;margin:0">SSB Psych Lab is an independent practice tool. It is not affiliated with the Services Selection Board, and its reviews are practice feedback, not an official assessment. Interview practice is coming soon.</p>`;
+  }
+  // Clicking any [data-gate] control on a guest page opens the login/register page (or back to home)
+  function gate(mode) { S.page = "auth"; S.authMode = mode; S.notice = S.notice || ""; history.replaceState(null, "", "#" + mode); render(); window.scrollTo(0, 0); }
+
+  /* ---------- login, register, forgot password, new password ---------- */
   function viewAuth() {
-    const reg = S.authMode === "register";
+    const m = S.authMode, reg = m === "register";
+    const notice = S.notice ? `<div class="banner" role="status">${esc(S.notice)}</div>` : ""; S.notice = "";
+    const head = (eyebrow, title, sub) => `<div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1><p class="muted" style="margin:6px 0 0">${sub}</p></div>`;
+    const home = `<button type="button" class="linkbtn" data-gate="landing" style="font-size:14px">← Back to home</button>`;
+    if (m === "forgot") return `<div class="auth">${head("Account", "Reset your password", "Enter the email you registered with. We'll send a link to choose a new password.")}${notice}
+      <form class="card" id="authForm" novalidate>
+        <div class="field"><label for="aEmail">Email</label><input id="aEmail" type="email" required autocomplete="email"></div>
+        <div class="err" id="aErr" role="alert"></div>
+        <div class="banner" id="aOk" role="status" hidden></div>
+        <button class="btn" type="submit">Send reset link</button>
+        <div class="muted" style="font-size:14px"><button type="button" class="linkbtn" id="aBackLogin">Back to log in</button></div>
+      </form>${home}</div>`;
+    if (m === "recovery") return `<div class="auth">${head("Account", "Choose a new password", "Set a new password for your account. The reset link works once.")}
+      <form class="card" id="authForm" novalidate>
+        <div class="field"><label for="aPw">New password</label><input id="aPw" type="password" required minlength="6" autocomplete="new-password"></div>
+        <div class="field"><label for="aPw2">Confirm new password</label><input id="aPw2" type="password" required minlength="6" autocomplete="new-password"></div>
+        <div class="err" id="aErr" role="alert"></div>
+        <button class="btn" type="submit">Save password and log in</button>
+      </form>${home}</div>`;
     return `<div class="auth">
-      <div><div class="eyebrow">SSB psychology practice</div><h1>${reg ? "Report at the board" : "Welcome back"}</h1>
-      <p class="muted" style="margin:6px 0 0">${reg ? "Register to start your 30-day program. A chest number is allotted to you automatically." : "Log in with your email and password to continue your program."}</p></div>
+      ${head("SSB psychology practice", reg ? "Report at the board" : "Welcome back", reg ? "Register to start your 30-day program. A chest number is allotted to you automatically." : "Log in with your email and password to continue your program.")}
+      ${notice}
       <form class="card" id="authForm" novalidate>
         ${reg ? `<div class="field"><label for="aName">Full name</label><input id="aName" required maxlength="40" autocomplete="name"></div>` : ""}
         <div class="field"><label for="aEmail">Email</label><input id="aEmail" type="email" required autocomplete="email"></div>
         <div class="field"><label for="aPw">Password</label><input id="aPw" type="password" required minlength="6" autocomplete="${reg ? "new-password" : "current-password"}"></div>
+        ${reg ? "" : `<div style="text-align:right;margin-top:-6px"><button type="button" class="linkbtn" id="aForgot" style="font-size:14px">Forgot password?</button></div>`}
         ${reg ? `<div class="field"><label for="aEntry">Entry</label><select id="aEntry">${["NDA", "CDS", "AFCAT", "TES", "TGC", "SSC Tech", "NCC Special", "ACC", "Other"].map((e) => `<option>${e}</option>`).join("")}</select></div>` : ""}
         <div class="err" id="aErr" role="alert"></div>
         <button class="btn" type="submit">${reg ? "Register and get chest number" : "Log in"}</button>
         <div class="muted" style="font-size:14px">${reg ? "Already registered?" : "New candidate?"} <button type="button" class="linkbtn" id="aSwitch">${reg ? "Log in" : "Register"}</button></div>
       </form>
       <p class="muted" style="font-size:12px;margin:0">${Store.kind === "supabase" ? "Your progress is saved to your account and available on any device." : "Offline mode: accounts and progress are stored only in this browser on this computer."}</p>
+      ${home}
     </div>`;
   }
   function bindAuth() {
-    $("#aSwitch").onclick = () => { S.authMode = S.authMode === "login" ? "register" : "login"; render(); };
-    $("#authForm").addEventListener("submit", async (e) => {
-      e.preventDefault(); const err = $("#aErr"); err.textContent = "";
-      const email = $("#aEmail").value.trim(), pw = $("#aPw").value;
+    const form = $("#authForm");
+    if ($("#aSwitch")) $("#aSwitch").onclick = () => { S.authMode = S.authMode === "login" ? "register" : "login"; render(); };
+    if ($("#aForgot")) $("#aForgot").onclick = () => gate("forgot");
+    if ($("#aBackLogin")) $("#aBackLogin").onclick = () => gate("login");
+
+    async function submitAuth() {
+      const err = $("#aErr"), email = $("#aEmail").value.trim(), pw = $("#aPw").value;
       if (!/^\S+@\S+\.\S+$/.test(email)) return (err.textContent = "Enter a valid email address.");
       if (pw.length < 6) return (err.textContent = "Password must be at least 6 characters.");
       try {
         if (S.authMode === "register") {
           const name = $("#aName").value.trim(); if (!name) return (err.textContent = "Enter your name.");
           const res = await Store.register({ name, email, entry: $("#aEntry").value, password: pw });
-          if (res && res.needsConfirm) { S.authMode = "login"; render(); $("#aErr").textContent = ""; modal(`<div class="eyebrow">Almost there</div><h2 style="font-size:26px">Confirm your email</h2><p style="margin:0">We sent a link to <b>${esc(email)}</b>. Open it to activate your account, then log in here. Your chest number is allotted on confirmation.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="cOk">OK</button></div>`); $("#cOk").onclick = closeModal; return; }
-          S.user = res; await loadUser(); showChest();
-        } else { S.user = await Store.login(email, pw); await loadUser(); }
-        render();
+          if (res && res.needsConfirm) { S.authMode = "login"; render(); modal(`<div class="eyebrow">Almost there</div><h2 style="font-size:26px">Confirm your email</h2><p style="margin:0">We sent a link to <b>${esc(email)}</b>. Open it to activate your account, then log in here. Your chest number is allotted on confirmation.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="cOk">OK</button></div>`); $("#cOk").onclick = closeModal; return; }
+          S.user = res; await loadUser(); markActive(true); showChest(); setView("today");
+        } else { S.user = await Store.login(email, pw); await loadUser(); markActive(true); setView("today"); }
       } catch (ex) { err.textContent = ex.message || "Something went wrong. Try again."; }
-    });
+    }
+    async function submitForgot() {
+      const email = $("#aEmail").value.trim(), ok = $("#aOk"), btn = form.querySelector("button[type=submit]");
+      if (!/^\S+@\S+\.\S+$/.test(email)) return ($("#aErr").textContent = "Enter a valid email address.");
+      try {
+        await Store.requestReset(email);
+        ok.hidden = false; ok.textContent = `If an account exists for ${email}, a reset link is on its way. Check your spam folder too.`;
+        btn.disabled = true; setTimeout(() => (btn.disabled = false), 60000);   // one link per minute
+      } catch (ex) { $("#aErr").textContent = ex.message || "Couldn't send the reset link. Try again."; }
+    }
+    async function submitRecovery() {
+      const pw = $("#aPw").value, pw2 = $("#aPw2").value;
+      if (pw.length < 6) return ($("#aErr").textContent = "Password must be at least 6 characters.");
+      if (pw !== pw2) return ($("#aErr").textContent = "The two passwords don't match.");
+      try {
+        S.user = await Store.completeRecovery(pw); await loadUser(); markActive(true); setView("today");
+        modal(`<div class="eyebrow">Done</div><h2 style="font-size:26px">Password updated</h2><p style="margin:0">You're logged in with your new password.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="cOk">OK</button></div>`); $("#cOk").onclick = closeModal;
+      } catch (ex) { $("#aErr").textContent = ex.message || "This reset link has expired. Request a new one."; }
+    }
+    const handler = S.authMode === "forgot" ? submitForgot : S.authMode === "recovery" ? submitRecovery : submitAuth;
+    form.addEventListener("submit", (e) => { e.preventDefault(); $("#aErr").textContent = ""; handler(); });
   }
+
+  // Visitors: any [data-gate] control opens the login/register page. Attached once for the whole page.
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("[data-gate]");
+    if (!b || S.user) return;
+    if (b.dataset.gate === "landing") { S.page = "landing"; history.replaceState(null, "", location.pathname); render(); window.scrollTo(0, 0); }
+    else gate(b.dataset.gate);
+  });
   function showChest() {
     const m = modal(`<div class="eyebrow">Registration complete</div><div>Your chest number is</div><div class="chestbig">${S.user.chest}</div>
       <p class="muted" style="margin:0">Use it like you would at the board. Day 1 of your 30-day program starts today.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="cOk">Start</button></div>`);
@@ -776,13 +867,42 @@
   $("#settingsBtn").addEventListener("click", openProfile);
   $("#feedbackBtn").addEventListener("click", () => openFeedback());
   $("#chest").addEventListener("click", () => { if (S.user) openProfile(); });
-  $("#logoutBtn").addEventListener("click", async () => { if (await confirmBox("Log out?", "Your progress stays saved for when you log in again.", "Log out")) { Store.logout(); S.user = null; S.sessions = []; S.overall = null; S.authMode = "login"; render(); } });
+  $("#logoutBtn").addEventListener("click", async () => { if (await confirmBox("Log out?", "Your progress stays saved for when you log in again.", "Log out")) signOut("", "landing"); });
+  $("#guestLoginBtn").addEventListener("click", () => gate("login"));
+  $("#guestRegBtn").addEventListener("click", () => gate("register"));
+
+  /* ---------- session timeout: signed in, but no activity for 30 minutes → log out ---------- */
+  const IDLE_MS = 30 * 60 * 1000, LAST_KEY = "ssbpb:last";
+  function markActive(force) {
+    const now = Date.now(); if (!force && now - (S.last || 0) < 10000) return;   // throttle the storage write
+    S.last = now; try { localStorage.setItem(LAST_KEY, String(now)); } catch (e) {}
+  }
+  function signOut(notice, page) {
+    Store.logout(); S.user = null; S.sessions = []; S.overall = null; S.battery = null; S.fbCount = 0;
+    S.notice = notice || ""; S.authMode = "login"; S.page = page || (notice ? "auth" : "landing");
+    history.replaceState(null, "", S.page === "auth" ? "#login" : location.pathname);
+    $("#layer").innerHTML = ""; closeModal(); render();
+  }
+  function idleCheck() {
+    if (!S.user) return;
+    if (!S.last || RUN) return markActive(true);   // first check after sign-in starts the clock; never sign out mid-test
+    if (Date.now() - (S.last || 0) > IDLE_MS) signOut("You were logged out after 30 minutes without activity. Log in to continue your program.");
+  }
+  ["pointerdown", "keydown", "touchstart", "scroll"].forEach((ev) => document.addEventListener(ev, () => markActive(false), { passive: true, capture: true }));
+  setInterval(idleCheck, 15000);
+
   (async function boot() {
     readHash();
     $("#main").innerHTML = `<div class="loading"><div class="spinner"></div><div class="muted">Opening your file…</div></div>`;
     try { await Store.init(); S.user = await Store.currentUser(); if (S.user) await loadUser(); }
     catch (e) { S.user = null; }
-    if (!S.user) S.authMode = Store.kind === "local" && !localStorage.getItem("ssbpb:users") ? "register" : "login";
-    readHash(); render();
+    readHash();   // the email link may have changed the hash (#reset for a password reset)
+    if (S.user) {
+      const last = +(localStorage.getItem(LAST_KEY) || 0);
+      if (last && Date.now() - last > IDLE_MS) { Store.logout(); S.user = null; S.notice = "You were logged out after 30 minutes without activity. Log in to continue your program."; S.page = "auth"; S.authMode = "login"; }
+      else markActive(true);
+    }
+    if (!S.user && Store.isRecovery()) { S.page = "auth"; S.authMode = "recovery"; }
+    render();
   })();
 })();

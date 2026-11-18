@@ -248,3 +248,12 @@ body.authed #chest{cursor:pointer}
 .kpi.click:hover{background:var(--olive-soft)}
 @media (prefers-reduced-motion:reduce){.indet b{animation:none;left:0;width:100%;opacity:.5}}
 .battery .spec,.psy .spec,.env .spec{font-family:var(--mono);font-size:12px;color:var(--muted)}
+
+/* home page + visitor pages */
+.hero{display:flex;flex-direction:column;gap:14px;padding:28px 22px}
+.hero-h{font-size:clamp(34px,6vw,54px);text-transform:uppercase;letter-spacing:.03em}
+.lead{margin:0;max-width:62ch;font-size:18px}
+.sub{font-size:22px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px}
+.landing-test{text-align:left;cursor:pointer;font:inherit;color:inherit;display:flex;flex-direction:column;gap:10px}
+.landing-test:hover{border-color:var(--olive)}
+.linkish{color:var(--olive);font-weight:600;font-size:14px;margin-top:auto}
