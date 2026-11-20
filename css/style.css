@@ -257,3 +257,8 @@ body.authed #chest{cursor:pointer}
 .landing-test{text-align:left;cursor:pointer;font:inherit;color:inherit;display:flex;flex-direction:column;gap:10px}
 .landing-test:hover{border-color:var(--olive)}
 .linkish{color:var(--olive);font-weight:600;font-size:14px;margin-top:auto}
+
+/* WAT page-turn pause */
+.watgap{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;padding:28px 0}
+.watgap-n{font-family:var(--display);font-size:clamp(26px,5vw,40px);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.watgap #gapS{font-family:var(--mono);color:var(--olive)}

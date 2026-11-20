@@ -7,11 +7,13 @@
   const PROGRAM_DAYS = 30;
   const TESTS = {
     tat: { code: "TAT", name: "Thematic Apperception Test", options: [4, 6, 12], def: 12, spec: (n) => `${n === 12 ? "11 pictures + blank slide" : n + " pictures"} · 30 s view + 4 min write`, minutes: (n) => Math.round(n * 4.5) },
-    wat: { code: "WAT", name: "Word Association Test", options: [20, 40, 60], def: 60, spec: (n) => `${n} words · 15 s each`, minutes: (n) => Math.round((n * 15) / 60) },
+    wat: { code: "WAT", name: "Word Association Test", options: [20, 40, 60], def: 60, spec: (n) => `${n} words · 15 s each`, minutes: (n) => Math.round((n * WAT_SEC + watGaps(n) * WAT_PAGE_GAP) / 60) },
     srt: { code: "SRT", name: "Situation Reaction Test", options: [20, 40, 60], def: 60, spec: (n) => `${n} situations · ${n / 2} min total`, minutes: (n) => n / 2 },
     sd: { code: "SD", name: "Self Description", options: [5], def: 5, spec: () => "5 paragraphs · 15 min", minutes: () => 15 },
   };
-  const TAT_VIEW = 30, TAT_WRITE = 240, TAT_BLANK_VIEW = 60, WAT_SEC = 15, SRT_SEC_PER = 30, SD_SEC = 900;
+  const TAT_VIEW = 30, TAT_WRITE = 240, TAT_BLANK_VIEW = 60, WAT_SEC = 15, WAT_PAGE = 20, WAT_PAGE_GAP = 15, SRT_SEC_PER = 30, SD_SEC = 900;
+  // WAT pauses for 15 s after every 20 words, the way the board gives time to turn the answer-sheet page
+  const watGaps = (n) => Math.max(0, Math.ceil(n / WAT_PAGE) - 1);
   const SD_PROMPTS = [
     "What do your parents think about you?",
     "What do your teachers / employer think about you?",
@@ -38,7 +40,7 @@
   /* ---------- state ---------- */
   const S = { user: null, sessions: [], overall: null, choice: {}, view: "today", reportId: null, filter: "all", page: "landing", notice: "", last: 0, authMode: "login", ai: { reviews: [], status: null, pending: {}, err: {} }, battery: null };
   const GUEST_ROUTES = ["login", "register", "forgot", "reset"];   // visitor-only pages; "reset" is the link from the reset email
-  const BATTERY_ORDER = ["tat", "wat", "srt", "sd"], BATTERY_BREAK = 120;
+  const BATTERY_ORDER = ["tat", "wat", "srt", "sd"], BATTERY_BREAK = 60;   // a short break between tests, as at the board
   const dayNum = (d) => (S.user ? daysBetween(S.user.startDate, d || today()) + 1 : 1);
   const setNum = (day) => (((Math.max(1, day) - 1) % PROGRAM_DAYS) + 1);   // content set 1..30, cycles after day 30
   const assessed = () => S.sessions.filter((s) => s.assessment);
@@ -593,7 +595,7 @@
       <h2 style="font-size:32px">Full Psych Battery</h2>
       <p class="muted" style="margin:0">All four tests in one sitting, the way the board runs them. Finish all four today to unlock your full Psychologist Review.</p>
       ${bsteps({}, null)}
-      <div class="spec" style="border-top:1px dashed var(--line);padding-top:10px">About 2 hours in total · 2-minute break between tests</div>
+      <div class="spec" style="border-top:1px dashed var(--line);padding-top:10px">About 2 hours in total · 1-minute break between tests</div>
       <div class="lockbox">${ICON.lock}<span><b>Psychologist Review is locked.</b> It opens after SD is submitted. One full review per day.</span></div>
       <div><button class="btn" data-bstart="1">Start full battery</button></div></section>`;
   }
@@ -752,7 +754,7 @@
     const t = RUN.test, n = RUN.items.length;
     const text = {
       tat: [`You will see ${RUN.items.filter((x) => !x.blank).length} pictures${RUN.items.some((x) => x.blank) ? " and then a blank slide" : ""}, one at a time.`, "Each picture shows for 30 seconds. Then it is removed and you get 4 minutes to write a story.", "Say what led to the situation, what is happening now, and how it ends. Identify a hero and what the hero thinks and does.", "For the blank slide you get 1 minute to imagine any picture of your own, then 4 minutes to write.", "The timer moves on by itself, as it does at the board."],
-      wat: [`${n} words will appear one after another.`, "Each word stays for 15 seconds. Write the first thought that comes to mind, as a short sentence.", "The next word appears automatically. Pressing Enter moves on early.", "Don't skip words. A blank counts against you."],
+      wat: [`${n} words will appear one after another.`, "Each word stays for 15 seconds. Write the first thought that comes to mind, as a short sentence.", "The next word appears automatically after 15 seconds. You can't skip ahead, just as at the board.", ...(n > WAT_PAGE ? [`After every ${WAT_PAGE} words there is a ${WAT_PAGE_GAP}-second pause to turn the page.`] : []), "Don't skip words. A blank counts against you."],
       srt: [`You have ${n} situations and ${n / 2} minutes in total.`, "Write what you would actually do, briefly, in the order you would do it.", "Use Next and Back (or Enter) to move; when the time ends, the test is submitted.", "Attempt all. Short, complete actions beat long half answers."],
       sd: ["You have 15 minutes to write five short paragraphs.", "Write honestly what your parents, teachers or employer, friends and you yourself think of you, and the qualities you want to develop.", "Give real examples. Balance strengths with weaknesses."],
     }[t];
@@ -793,17 +795,37 @@
       setBar((RUN.i + (RUN.phase === "write" ? 0.15 + 0.85 * (1 - RUN.left / tot) : 0.15 * (1 - RUN.left / tot))) / total); if (RUN.left <= 0) advance(); });
   }
   function runWAT() {
-    RUN.i = 0; RUN.left = WAT_SEC;
+    const total = RUN.items.length;
+    RUN.i = 0; RUN.left = WAT_SEC; RUN.gap = false;
     const draw = () => {
-      $("#envSub").textContent = `Word ${RUN.i + 1} of ${RUN.items.length}`;
+      $("#envSub").textContent = `Word ${RUN.i + 1} of ${total}`;
       $("#envIn").innerHTML = `<div class="word" aria-live="assertive">${esc(RUN.items[RUN.i].w)}</div>
         <input class="wat-input" id="watIn" autocomplete="off" spellcheck="false" aria-label="Your response" placeholder="First thought…" value="${esc(RUN.responses[RUN.i])}">
-        <div class="muted" style="font-size:13px;text-align:center">Next word in 15 s · Enter to move on</div>`;
+        <div class="muted" style="font-size:13px;text-align:center">The next word comes in 15 s, as at the board</div>`;
       const inp = $("#watIn"); inp.focus(); inp.addEventListener("input", () => (RUN.responses[RUN.i] = inp.value));
-      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); next(); } });
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });   // no skipping ahead: each word stays its full 15 s
     };
-    const next = () => { RUN.i++; if (RUN.i >= RUN.items.length) return finish(); RUN.left = WAT_SEC; draw(); };
-    draw(); tick((dt) => { RUN.left -= dt; setClock(RUN.left, WAT_SEC); setBar((RUN.i + 1 - RUN.left / WAT_SEC) / RUN.items.length); if (RUN.left <= 0) next(); });
+    const drawGap = () => {
+      const page = RUN.i / WAT_PAGE + 1;
+      $("#envSub").textContent = `Page ${page} of ${Math.ceil(total / WAT_PAGE)}`;
+      $("#envIn").innerHTML = `<div class="watgap" aria-live="assertive"><div class="eyebrow">Turn the page</div>
+        <div class="watgap-n">Words ${RUN.i + 1}–${Math.min(RUN.i + WAT_PAGE, total)} next</div>
+        <div class="muted">Word ${RUN.i + 1} appears in <b id="gapS">${WAT_PAGE_GAP}</b> s</div></div>`;
+    };
+    const next = () => {
+      RUN.i++; if (RUN.i >= total) return finish();
+      if (RUN.i % WAT_PAGE === 0) { RUN.gap = true; RUN.left = WAT_PAGE_GAP; return drawGap(); }
+      RUN.left = WAT_SEC; draw();
+    };
+    draw(); tick((dt) => {
+      RUN.left -= dt;
+      if (RUN.gap) {
+        setClock(RUN.left, WAT_PAGE_GAP); const g = $("#gapS"); if (g) g.textContent = Math.max(0, Math.ceil(RUN.left));
+        if (RUN.left <= 0) { RUN.gap = false; RUN.left = WAT_SEC; draw(); }
+        return;
+      }
+      setClock(RUN.left, WAT_SEC); setBar((RUN.i + 1 - RUN.left / WAT_SEC) / total); if (RUN.left <= 0) next();
+    });
   }
   function runSRT() {
     const total = RUN.items.length * SRT_SEC_PER; RUN.left = total; RUN.i = 0;
