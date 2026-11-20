@@ -538,8 +538,9 @@
     if (!S.user) return gate("register");
     const st = S.pass ? S.pass.status : "none";
     if (st === "pending") return payPending();
-    const n = dayNum();
-    const lead = reason === "locked" ? `<div class="banner" style="margin:0">Day ${n}'s tests are part of the full pass. Day 1 is free.</div>`
+    const n = dayNum(), day1 = reason !== "locked" && setNum(n) === 1;
+    const lead = day1 && st !== "rejected" ? `<div class="banner free1" style="margin:0"><b>Today is free.</b> Try Day 1 first, then unlock Days 2–30 for ₹${PAY.price}.</div>`
+      : reason === "locked" ? `<div class="banner" style="margin:0">Day ${n}'s tests are part of the full pass. Day 1 is free.</div>`
       : st === "rejected" ? `<div class="banner bad" style="margin:0"><b>We couldn't verify your last payment.</b>${S.pass.note ? " " + esc(S.pass.note) : ""} If you did pay, enter the correct 12-digit UTR below.</div>` : "";
     const m = modal(`<div class="pay">
       <div class="row" style="justify-content:space-between;align-items:flex-start"><span class="eyebrow" style="color:var(--olive)">SSB Psych Lab · Full program pass</span><button class="x" id="payX" aria-label="Close">×</button></div>
@@ -563,9 +564,10 @@
         <div class="err" id="payErr" role="alert"></div>
         <button class="btn" type="submit" id="paySend">Submit for verification</button></div></form>
       <p class="muted" style="font-size:13px;margin:0">We confirm your payment and unlock your pass within a few minutes. Day 1 stays open meanwhile. Questions: ssbpsychlab@gmail.com</p>
-      <div class="row" style="justify-content:flex-end"><button class="btn quiet" id="payLater">Maybe later</button></div></div>`);
+      <div class="row" style="justify-content:flex-end"><button class="btn quiet" id="payLater">${day1 ? "Start Day 1 free →" : "Maybe later"}</button></div></div>`);
     m.classList.add("paymodal");
-    $("#payX", m).onclick = closeModal; $("#payLater", m).onclick = closeModal;
+    $("#payX", m).onclick = closeModal;
+    $("#payLater", m).onclick = () => { closeModal(); if (day1) { const t = document.querySelector(".battery, .tests"); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); } };
     $("#payCopy", m).onclick = async (e) => { try { await navigator.clipboard.writeText(PAY.upiId); e.target.textContent = "Copied"; } catch (x) { e.target.textContent = PAY.upiId; } setTimeout(() => (e.target.textContent = "Copy UPI ID"), 2000); };
     $("#payUtr", m).addEventListener("input", (e) => { e.target.value = e.target.value.replace(/[^0-9]/g, "").slice(0, 12); });
     $("#payForm", m).addEventListener("submit", async (e) => {

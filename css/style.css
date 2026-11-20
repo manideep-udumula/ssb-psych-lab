@@ -298,3 +298,4 @@ body.authed #chest{cursor:pointer}
 .launchbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px dashed var(--brass);background:color-mix(in srgb,var(--brass) 8%,var(--surface));border-radius:8px;padding:10px 14px}
 .launchbar .lp{font-size:17px}
 .launchbar .muted{font-size:14px}
+.banner.free1{border-left-color:var(--good)}
