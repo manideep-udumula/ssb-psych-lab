@@ -169,6 +169,7 @@
   const AI_BUDGET = 400000; // must match AI_TOKEN_BUDGET in the ai-review Edge Function
   async function loadPayments() {
     try { S.pay = await Store.rpc("admin_payments"); S.payErr = ""; } catch (e) { S.pay = null; S.payErr = e.message; }
+    try { S.offer = await Store.rpc("pass_offer"); } catch (e) { S.offer = null; }
     const n = (S.pay || []).filter((p) => p.status === "pending").length, b = $("#payBadge");
     if (b) { b.hidden = !n; b.textContent = n; }
   }
@@ -358,6 +359,7 @@
     return `<section class="tiles"><div class="tile accent"><span class="lbl">To verify</span><span class="val">${num(pend.length)}</span><span class="meta">waiting for you</span></div>
       <div class="tile"><span class="lbl">Passes sold</span><span class="val">${num(ok.length)}</span></div>
       <div class="tile"><span class="lbl">Revenue</span><span class="val">₹${num(rev)}</span><span class="meta">approved payments, all time</span></div>
+      ${S.offer && S.offer.seats ? `<div class="tile"><span class="lbl">Launch passes left</span><span class="val">${num(S.offer.left)}<small style="font-size:18px;color:var(--muted)">/${num(S.offer.seats)}</small></span><span class="meta">${S.offer.launch ? `₹${num(S.offer.launch_price)} until they're gone, then ₹${num(S.offer.regular)}` : `Launch offer over · now ₹${num(S.offer.price)}`}</span></div>` : ""}
       <div class="tile"><span class="lbl">Rejected</span><span class="val">${num(rej.length)}</span></div></section>
     <div class="hqgrid"><section class="panel span-12"><div class="panel-h"><h3>Waiting for verification</h3><span class="updated">Find each UTR in your bank or UPI app before approving</span></div>
       ${pend.length ? pend.map(card).join("") : `<div class="empty">Nothing to verify right now.</div>`}<div class="err" id="payActErr" role="alert"></div></section>

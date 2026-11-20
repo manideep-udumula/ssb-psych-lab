@@ -37,7 +37,17 @@
 
   /* ---------- state ---------- */
   const S = { user: null, sessions: [], overall: null, choice: {}, view: "today", reportId: null, filter: "all", page: "landing", notice: "", last: 0, authMode: "login", ai: { reviews: [], status: null, pending: {}, err: {} }, battery: null, pass: null };
-  const PAY = Object.assign({ upiId: "", payee: "SSB Psych Lab", price: 300 }, (window.SSB_CONFIG || {}).payment || {});
+  const PAY = Object.assign({ upiId: "", payee: "SSB Psych Lab", price: 300, regularPrice: 0, launchSeats: 0 }, (window.SSB_CONFIG || {}).payment || {});
+  PAY.launch = PAY.regularPrice > PAY.price; PAY.left = null; PAY.seats = PAY.launchSeats;
+  // Live offer from the server: price now, regular price, and how many launch passes are really left
+  function applyOffer(o) {
+    if (!o || !o.price) return;
+    PAY.price = +o.price; if (o.regular) PAY.regularPrice = +o.regular;
+    if (o.seats != null) PAY.seats = +o.seats; if (o.left != null) PAY.left = +o.left;
+    PAY.launch = !!o.launch && PAY.regularPrice > PAY.price;
+  }
+  const offPct = () => Math.round((1 - PAY.price / PAY.regularPrice) * 100);
+  const seatsTxt = () => (PAY.left != null && PAY.seats ? `${PAY.left} of ${PAY.seats} launch passes left` : `First ${PAY.seats || 100} candidates only`);
   const GUEST_ROUTES = ["login", "register", "forgot", "reset"];   // visitor-only pages; "reset" is the link from the reset email
   const BATTERY_ORDER = ["tat", "wat", "srt", "sd"], BATTERY_BREAK = 120;
   const dayNum = (d) => (S.user ? daysBetween(S.user.startDate, d || today()) + 1 : 1);
@@ -109,6 +119,7 @@
         <div class="eyebrow">SSB psychology practice · 30-day program</div>
         <h1 class="hero-h">Practise the board the way it is run.</h1>
         <p class="lead">Daily TAT, WAT, SRT and Self Description in real board timings, then a psychologist's review of how each response reads against the Officer Like Qualities.</p>
+        ${PAY.launch ? `<div class="launchbar"><span class="offer-tag">Launch offer</span><span class="lp"><b>Full 30-day pass ₹${PAY.price}</b> <s class="was-s">₹${PAY.regularPrice}</s></span><span class="muted">${offPct()}% off · ${seatsTxt()} · Day 1 free</span></div>` : ""}
         <div class="row" style="gap:10px"><button class="btn" type="button" data-gate="register">Register and get your chest number</button><button class="btn quiet" type="button" data-gate="login">Log in</button></div>
         <p class="muted" style="font-size:13px;margin:0">Free to start. Your chest number is allotted when you register.</p>
       </section>
@@ -502,7 +513,7 @@
     if (Store.kind !== "supabase") { S.pass = { status: "paid" }; return; }
     try { S.pass = await Store.myPass(); } catch (e) { S.pass = null; }
     if (!S.pass || !["none", "pending", "paid", "rejected"].includes(S.pass.status)) S.pass = { status: "unknown" };
-    if (S.pass.price) PAY.price = S.pass.price;
+    applyOffer(S.pass);
   }
   const passOpen = () => !S.pass || ["paid", "unknown"].includes(S.pass.status);
   function passLocked(n) { return Store.kind === "supabase" && !passOpen() && setNum(n || dayNum()) > 1; }
@@ -517,7 +528,7 @@
       <p style="margin:0">We've got your ₹${PAY.price} payment details${S.pass.submitted ? ` (sent ${fmtWhen(S.pass.submitted)})` : ""}. Days 2–30 unlock as soon as it's confirmed, usually within a few minutes.</p>
       <div class="row"><button class="btn quiet" data-paycheck="1">Check status</button></div></section>`;
     const day1 = setNum(n) === 1;
-    return `<section class="card paycard"><div class="paycard-in"><div><div class="eyebrow" style="color:var(--olive)">Full program pass · ₹${PAY.price} once</div>
+    return `<section class="card paycard${PAY.launch ? " launch" : ""}"><div class="paycard-in"><div><div class="eyebrow" style="color:var(--olive)">${PAY.launch ? `<span class="offer-tag">Launch offer</span> ₹${PAY.price} <s class="was-s">₹${PAY.regularPrice}</s> · ${seatsTxt()}` : `Full program pass · ₹${PAY.price} once`}</div>
       <h2 style="font-size:24px;margin-top:4px">${day1 ? "Day 1 is on us." : `Day ${n} is part of the full pass.`}</h2>
       <p class="muted" style="margin:4px 0 0">${S.pass.status === "rejected" ? "We couldn't match your last payment. Check the UTR and send it again." : day1 ? `Unlock Days 2–30 with one payment of ₹${PAY.price}. No expiry, take them at your own pace.` : `One payment of ₹${PAY.price} unlocks Days 2–30. No expiry.`}</p></div>
       <button class="btn" data-pay="card">Unlock all 30 days</button></div></section>`;
@@ -533,7 +544,9 @@
     const m = modal(`<div class="pay">
       <div class="row" style="justify-content:space-between;align-items:flex-start"><span class="eyebrow" style="color:var(--olive)">SSB Psych Lab · Full program pass</span><button class="x" id="payX" aria-label="Close">×</button></div>
       <h2 class="pay-h">Unlock all 30 days</h2>
-      <div class="price"><span class="num">₹${PAY.price}</span><span class="muted">one payment<br>no expiry</span></div>
+      ${PAY.launch ? `<div class="offer-row"><span class="offer-tag">Launch offer · ${offPct()}% off</span><span class="seats">${seatsTxt()}</span></div>` : ""}
+      <div class="price">${PAY.launch ? `<span class="was" aria-label="Regular price ₹${PAY.regularPrice}">₹${PAY.regularPrice}</span>` : ""}<span class="num">₹${PAY.price}</span><span class="muted">one payment<br>no expiry</span></div>
+      ${PAY.launch ? `<p class="muted" style="margin:-6px 0 0;font-size:13px">After the first ${PAY.seats} passes, the price goes to ₹${PAY.regularPrice}.</p>` : ""}
       ${lead}
       <ul class="list">
         <li class="str">Fresh TAT, WAT, SRT and SD sets for Days 2–30</li>
@@ -542,7 +555,7 @@
         <li class="str">No time limit. Take the 30 sets at your own pace</li></ul>
       <div class="pstep"><div class="pnum">1</div><div class="pbody"><b>Pay ₹${PAY.price} by UPI</b>
         ${isPhone() ? `<a class="btn" id="payApp" href="${esc(upiLink())}">Pay ₹${PAY.price} with a UPI app</a><span class="muted" style="font-size:13px">Opens GPay, PhonePe, Paytm or BHIM. If it doesn't open, pay to the UPI ID below.</span>` : `<span class="muted" style="font-size:14px">Scan with any UPI app on your phone.</span>`}
-        <div class="qrwrap"><img class="qr" src="assets/upi-qr.png?v=2" alt="UPI QR code to pay ₹${PAY.price} to ${esc(PAY.upiId)}" width="168" height="168"></div>
+        <div class="qrwrap"><img class="qr" src="assets/upi-qr-${PAY.price}.png?v=3" onerror="this.parentNode.hidden=true" alt="UPI QR code to pay ₹${PAY.price} to ${esc(PAY.upiId)}" width="168" height="168"></div>
         <div class="upiid"><span class="spec">${esc(PAY.upiId)}</span><button type="button" class="btn quiet" id="payCopy">Copy UPI ID</button></div></div></div>
       <form class="pstep" id="payForm" novalidate><div class="pnum">2</div><div class="pbody"><b>Send us the UTR</b>
         <span class="muted" style="font-size:14px">After paying, open the payment in your UPI app and copy the 12-digit <b>UPI Ref No.</b> (also called UTR).</span>
@@ -1021,6 +1034,7 @@
       else markActive(true);
     }
     if (!S.user && Store.isRecovery()) { S.page = "auth"; S.authMode = "recovery"; }
+    if (!S.user && Store.kind === "supabase") Store.passOffer().then((o) => { applyOffer(o); if (!S.user && S.page === "landing") render(); }).catch(() => {});
     render();
     if (S.user) maybePayPopup();
   })();

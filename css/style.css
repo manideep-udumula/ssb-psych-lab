@@ -286,3 +286,15 @@ body.authed #chest{cursor:pointer}
 .upiid .btn{padding:4px 10px;font-size:13px}
 #payUtr{font-family:var(--mono);letter-spacing:.08em}
 @media (max-width:520px){.paycard-in .btn{width:100%}.pay-h{font-size:28px}}
+
+/* launch offer */
+.offer-tag{display:inline-block;background:var(--brass);color:#fff;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:4px;vertical-align:1px}
+.was{font-family:var(--display);font-size:26px;font-weight:600;color:var(--muted);text-decoration:line-through;text-decoration-color:var(--bad);text-decoration-thickness:2px;align-self:center}
+.was-s{color:var(--muted);text-decoration-color:var(--bad);text-decoration-thickness:1.5px}
+.offer-row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.offer-row .seats{font-size:13px;font-weight:600;color:var(--brass)}
+.paycard.launch{border-left-color:var(--brass);background:linear-gradient(90deg,color-mix(in srgb,var(--brass) 9%,var(--surface)),var(--surface) 60%)}
+.paycard.launch .eyebrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.launchbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px dashed var(--brass);background:color-mix(in srgb,var(--brass) 8%,var(--surface));border-radius:8px;padding:10px 14px}
+.launchbar .lp{font-size:17px}
+.launchbar .muted{font-size:14px}

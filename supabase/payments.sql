@@ -2,7 +2,9 @@
 -- Part 1 (this file) only ADDS objects, so it is safe to apply before the feature is live.
 -- Part 2 (payments_enforce.sql) locks the server down and is applied when the branch is merged.
 
-insert into private.settings(key, value) values ('pass_price', '300') on conflict (key) do nothing;
+-- Launch offer: the first 100 passes (approved or awaiting approval) are ₹300; after that the regular ₹999 applies.
+insert into private.settings(key, value) values ('pass_price', '300'), ('pass_regular_price', '999'), ('launch_seats', '100')
+  on conflict (key) do nothing;
 
 create table if not exists public.payments (
   id          bigint generated always as identity primary key,
@@ -28,20 +30,35 @@ language sql stable security definer set search_path = '' as $$
   select exists (select 1 from public.payments where user_id = uid and status = 'approved');
 $$;
 
+-- Current offer, counted from real payments. Public, so the landing page can show it.
+create or replace function private.pass_offer() returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+declare launch int := coalesce((select value from private.settings where key = 'pass_price')::int, 300);
+        regular int := coalesce((select value from private.settings where key = 'pass_regular_price')::int, launch);
+        seats int := coalesce((select value from private.settings where key = 'launch_seats')::int, 0);
+        used int := (select count(*) from public.payments where status in ('approved','pending'));
+        lft int := greatest(seats - used, 0);
+begin
+  return jsonb_build_object('price', case when lft > 0 then launch else regular end, 'regular', regular, 'launch_price', launch,
+    'seats', seats, 'left', lft, 'launch', lft > 0);
+end $$;
+create or replace function public.pass_offer() returns jsonb
+language sql stable security definer set search_path = '' as $$ select private.pass_offer(); $$;
+
 -- What the app needs to know about the signed-in candidate's pass
 create or replace function public.my_pass() returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
-declare uid uuid := auth.uid(); p record; price int;
+declare uid uuid := auth.uid(); p record; offer jsonb := private.pass_offer();
 begin
   if uid is null then raise exception 'not signed in'; end if;
-  price := coalesce((select value from private.settings where key = 'pass_price')::int, 300);
   if private.has_pass(uid) then
     select * into p from public.payments where user_id = uid and status = 'approved' order by reviewed_at desc nulls last limit 1;
-    return jsonb_build_object('status','paid','price',price,'since',p.reviewed_at);
+    return offer || jsonb_build_object('status','paid','paid_amount',p.amount,'since',p.reviewed_at);
   end if;
   select * into p from public.payments where user_id = uid order by created_at desc limit 1;
-  if not found then return jsonb_build_object('status','none','price',price); end if;
-  return jsonb_build_object('status', p.status, 'price', price, 'utr', p.utr, 'note', p.note, 'submitted', p.created_at);
+  if not found then return offer || jsonb_build_object('status','none'); end if;
+  -- a claim keeps the price it was made at
+  return offer || jsonb_build_object('status', p.status, 'price', p.amount, 'utr', p.utr, 'note', p.note, 'submitted', p.created_at);
 end $$;
 
 -- Candidate submits the UPI reference (UTR) after paying
@@ -55,7 +72,7 @@ begin
   if exists (select 1 from public.payments where user_id = uid and status = 'pending') then raise exception 'already_pending'; end if;
   if (select count(*) from public.payments where user_id = uid and created_at > now() - interval '1 day') >= 5 then raise exception 'too_many'; end if;
   if exists (select 1 from public.payments where utr = u and status <> 'rejected') then raise exception 'utr_used'; end if;
-  price := coalesce((select value from private.settings where key = 'pass_price')::int, 300);
+  price := (private.pass_offer()->>'price')::int;
   insert into public.payments(user_id, amount, utr) values (uid, price, u);
   return public.my_pass();
 end $$;
@@ -120,4 +137,5 @@ create trigger payment_email after insert on public.payments for each row execut
 
 revoke all on function public.my_pass(), public.submit_payment(text), public.admin_payments(), public.admin_review_payment(bigint, boolean, text) from public, anon;
 grant execute on function public.my_pass(), public.submit_payment(text), public.admin_payments(), public.admin_review_payment(bigint, boolean, text) to authenticated;
-revoke all on function private.has_pass(uuid) from public, anon, authenticated;
+revoke all on function private.has_pass(uuid), private.pass_offer() from public, anon, authenticated;
+grant execute on function public.pass_offer() to anon, authenticated;
