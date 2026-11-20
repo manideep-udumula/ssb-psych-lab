@@ -36,7 +36,8 @@
   const today = () => localDate();
 
   /* ---------- state ---------- */
-  const S = { user: null, sessions: [], overall: null, choice: {}, view: "today", reportId: null, filter: "all", page: "landing", notice: "", last: 0, authMode: "login", ai: { reviews: [], status: null, pending: {}, err: {} }, battery: null };
+  const S = { user: null, sessions: [], overall: null, choice: {}, view: "today", reportId: null, filter: "all", page: "landing", notice: "", last: 0, authMode: "login", ai: { reviews: [], status: null, pending: {}, err: {} }, battery: null, pass: null };
+  const PAY = Object.assign({ upiId: "", payee: "SSB Psych Lab", price: 300 }, (window.SSB_CONFIG || {}).payment || {});
   const GUEST_ROUTES = ["login", "register", "forgot", "reset"];   // visitor-only pages; "reset" is the link from the reset email
   const BATTERY_ORDER = ["tat", "wat", "srt", "sd"], BATTERY_BREAK = 120;
   const dayNum = (d) => (S.user ? daysBetween(S.user.startDate, d || today()) + 1 : 1);
@@ -181,7 +182,7 @@
           const res = await Store.register({ name, email, entry: $("#aEntry").value, password: pw });
           if (res && res.needsConfirm) { S.authMode = "login"; render(); modal(`<div class="eyebrow">Almost there</div><h2 style="font-size:26px">Confirm your email</h2><p style="margin:0">We sent a link to <b>${esc(email)}</b>. Open it to activate your account, then log in here. Your chest number is allotted on confirmation.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="cOk">OK</button></div>`); $("#cOk").onclick = closeModal; return; }
           S.user = res; await loadUser(); markActive(true); showChest(); setView("today");
-        } else { S.user = await Store.login(email, pw); await loadUser(); markActive(true); setView("today"); }
+        } else { S.user = await Store.login(email, pw); await loadUser(); markActive(true); setView("today"); maybePayPopup(); }
       } catch (ex) { err.textContent = ex.message || "Something went wrong. Try again."; }
     }
     async function submitForgot() {
@@ -216,12 +217,13 @@
   function showChest() {
     const m = modal(`<div class="eyebrow">Registration complete</div><div>Your chest number is</div><div class="chestbig">${S.user.chest}</div>
       <p class="muted" style="margin:0">Use it like you would at the board. Day 1 of your 30-day program starts today.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="cOk">Start</button></div>`);
-    $("#cOk", m).onclick = closeModal;
+    $("#cOk", m).onclick = () => { closeModal(); maybePayPopup(); };
   }
   async function loadUser() {
     S.sessions = await Store.sessions(S.user.id); S.overall = await Store.overall(S.user.id);
     try { S.fbCount = await Store.feedbackCount(S.user.id); } catch (e) { S.fbCount = 0; }
     S.battery = loadBattery(); S.ai = { reviews: [], status: null, pending: {}, err: {} }; loadAI();
+    await loadPass();
     S.isAdmin = false; if (Store.kind === "supabase") Store.rpc("is_admin").then((v) => { S.isAdmin = v === true; const b = $("#hqBtn"); if (b) b.hidden = !S.isAdmin; }).catch(() => {});
   }
 
@@ -241,13 +243,14 @@
     const cards = Object.entries(TESTS).map(([k, t]) => {
       const cnt = S.choice[k] || t.def; const done = todays.filter((s) => s.test === k);
       const ls = done.length && done[done.length - 1].assessment ? done[done.length - 1].assessment.overall : null;
-      return `<div class="card test">
+      const lock = passLocked(n);
+      return `<div class="card test${lock ? " locked" : ""}">
         ${done.length ? `<span class="pill ${scoreClass(ls)} done-flag">✓ Done${ls != null ? " · " + r1(ls) : ""}</span>` : ""}
         <div><div class="code">${t.code}</div><div class="tname">${t.name}</div></div>
         ${t.options.length > 1 ? `<div class="seg" role="group" aria-label="${t.code} length">${t.options.map((o) => `<button data-count="${k}:${o}" aria-pressed="${o === cnt}">${o === 12 && k === "tat" ? "11+1" : o}</button>`).join("")}</div>` : ""}
         <div class="spec">${t.spec(cnt)} · ~${t.minutes(cnt)} min · Set ${pad(set)}</div>
         ${suggest === k && !done.length ? `<div class="suggest">${gap >= 999 ? "Not attempted yet" : `Not taken for ${gap} days`}</div>` : ""}
-        <button class="btn" data-start="${k}" style="margin-top:auto">${done.length ? "Take again" : "Start " + t.code}</button>
+        ${lock ? `<button class="btn" data-pay="locked" style="margin-top:auto">${ICON.lock} Unlock with full pass</button>` : `<button class="btn" data-start="${k}" style="margin-top:auto">${done.length ? "Take again" : "Start " + t.code}</button>`}
       </div>`;
     }).join("");
     const a = assessed(), lastA = a[a.length - 1];
@@ -256,8 +259,9 @@
       <div class="daynum num">${pad(Math.min(n, 99))}<small>DAY</small></div>
       <div><div class="eyebrow">${new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}</div>
         <h1 style="font-size:30px;margin-top:4px">${esc(S.user.name)}</h1>
-        <div class="muted" style="font-size:14px">${n > PROGRAM_DAYS ? `Program complete · now repeating set ${set}` : `Day ${n} of ${PROGRAM_DAYS}`} · ${esc(S.user.entry)} entry · ${todays.length ? `${todays.length} test${todays.length > 1 ? "s" : ""} today` : "No test taken today yet"} · ${streak()} day streak</div>
+        <div class="muted" style="font-size:14px">${n > PROGRAM_DAYS ? `Program complete · now repeating set ${set}` : `Day ${n} of ${PROGRAM_DAYS}`} · ${esc(S.user.entry)} entry · ${todays.length ? `${todays.length} test${todays.length > 1 ? "s" : ""} today` : "No test taken today yet"} · ${streak()} day streak${S.pass && S.pass.status === "paid" ? ` · <span class="pill good" style="font-size:12px">Full pass</span>` : ""}</div>
         <div class="strip" aria-label="30 day program">${strip}</div></div></div></section>
+    ${passCard(n)}
     ${batteryCard()}
     <section><div class="section-h" style="margin-bottom:12px"><h2>Single tests</h2><span class="muted" style="font-size:14px">Day ${n} uses set ${pad(set)} of 30. Timings follow the SSB format.</span></div>
       <div class="tests">${cards}</div></section>
@@ -458,6 +462,8 @@
     m.querySelectorAll("[data-psy]").forEach((b) => b.addEventListener("click", () => requestSingle(b.dataset.psy)));
     m.querySelectorAll("[data-psyb]").forEach((b) => b.addEventListener("click", () => requestBattery(b.dataset.psyb)));
     m.querySelectorAll("[data-battery]").forEach((b) => b.addEventListener("click", () => setView("battery", b.dataset.battery)));
+    m.querySelectorAll("[data-pay]").forEach((b) => b.addEventListener("click", () => openPay(b.dataset.pay)));
+    m.querySelectorAll("[data-paycheck]").forEach((b) => b.addEventListener("click", () => checkPass(b)));
     m.querySelectorAll("[data-bstart]").forEach((b) => b.addEventListener("click", () => startBattery()));
     m.querySelectorAll("[data-bresume]").forEach((b) => b.addEventListener("click", () => nextInBattery()));
     m.querySelectorAll("[data-bquit]").forEach((b) => b.addEventListener("click", async () => { if (await confirmBox("Stop this battery?", "Tests you've finished stay as single-test reports. You can start a new battery any time.", "Stop battery")) { saveBattery(null); render(); } }));
@@ -488,6 +494,116 @@
     $("#pf", m).addEventListener("submit", async (e) => { e.preventDefault(); S.user = await Store.updateUser(u.id, { name: $("#pfName", m).value.trim() || u.name, entry: $("#pfEntry", m).value }); closeModal(); render(); });
   }
 
+
+  /* ---------- full-program pass (₹300 by UPI, approved by hand in HQ) ---------- */
+  // Day 1's test set is free; sets 2–30 need the pass. Keyed to the content set, so restarting the program
+  // only replays Day 1. If the pass status can't be read (offline mode, or the server isn't set up), nothing is locked.
+  async function loadPass() {
+    if (Store.kind !== "supabase") { S.pass = { status: "paid" }; return; }
+    try { S.pass = await Store.myPass(); } catch (e) { S.pass = null; }
+    if (!S.pass || !["none", "pending", "paid", "rejected"].includes(S.pass.status)) S.pass = { status: "unknown" };
+    if (S.pass.price) PAY.price = S.pass.price;
+  }
+  const passOpen = () => !S.pass || ["paid", "unknown"].includes(S.pass.status);
+  function passLocked(n) { return Store.kind === "supabase" && !passOpen() && setNum(n || dayNum()) > 1; }
+  const isPhone = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const upiLink = () => `upi://pay?pa=${PAY.upiId}&pn=${encodeURIComponent(PAY.payee)}&am=${PAY.price}.00&cu=INR&tn=${encodeURIComponent("SSB Psych Lab pass C" + (S.user ? S.user.chest : ""))}`;
+  const fmtWhen = (iso) => { try { return new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }); } catch (e) { return ""; } };
+  const maskUtr = (u) => (u ? "•••• " + String(u).slice(-4) : "");
+
+  function passCard(n) {
+    if (!S.pass || passOpen()) return "";
+    if (S.pass.status === "pending") return `<section class="card paycard pending"><div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--brass)">Payment under review</span><span class="pill warn">UTR ${maskUtr(S.pass.utr)}</span></div>
+      <p style="margin:0">We've got your ₹${PAY.price} payment details${S.pass.submitted ? ` (sent ${fmtWhen(S.pass.submitted)})` : ""}. Days 2–30 unlock as soon as it's confirmed, usually within 24 hours.</p>
+      <div class="row"><button class="btn quiet" data-paycheck="1">Check status</button></div></section>`;
+    const day1 = setNum(n) === 1;
+    return `<section class="card paycard"><div class="paycard-in"><div><div class="eyebrow" style="color:var(--olive)">Full program pass · ₹${PAY.price} once</div>
+      <h2 style="font-size:24px;margin-top:4px">${day1 ? "Day 1 is on us." : `Day ${n} is part of the full pass.`}</h2>
+      <p class="muted" style="margin:4px 0 0">${S.pass.status === "rejected" ? "We couldn't match your last payment. Check the UTR and send it again." : day1 ? `Unlock Days 2–30 with one payment of ₹${PAY.price}. No expiry, take them at your own pace.` : `One payment of ₹${PAY.price} unlocks Days 2–30. No expiry.`}</p></div>
+      <button class="btn" data-pay="card">Unlock all 30 days</button></div></section>`;
+  }
+
+  function openPay(reason) {
+    if (!S.user) return gate("register");
+    const st = S.pass ? S.pass.status : "none";
+    if (st === "pending") return payPending();
+    const n = dayNum();
+    const lead = reason === "locked" ? `<div class="banner" style="margin:0">Day ${n}'s tests are part of the full pass. Day 1 is free.</div>`
+      : st === "rejected" ? `<div class="banner bad" style="margin:0"><b>We couldn't verify your last payment.</b>${S.pass.note ? " " + esc(S.pass.note) : ""} If you did pay, enter the correct 12-digit UTR below.</div>` : "";
+    const m = modal(`<div class="pay">
+      <div class="row" style="justify-content:space-between;align-items:flex-start"><span class="eyebrow" style="color:var(--olive)">SSB Psych Lab · Full program pass</span><button class="x" id="payX" aria-label="Close">×</button></div>
+      <h2 class="pay-h">Unlock all 30 days</h2>
+      <div class="price"><span class="num">₹${PAY.price}</span><span class="muted">one payment<br>no expiry</span></div>
+      ${lead}
+      <ul class="list">
+        <li class="str">Fresh TAT, WAT, SRT and SD sets for Days 2–30</li>
+        <li class="str">Full battery with a Psychologist Review every day</li>
+        <li class="str">Your OLQ profile and progress across the whole program</li>
+        <li class="str">No time limit. Take the 30 sets at your own pace</li></ul>
+      <div class="pstep"><div class="pnum">1</div><div class="pbody"><b>Pay ₹${PAY.price} by UPI</b>
+        ${isPhone() ? `<a class="btn" id="payApp" href="${esc(upiLink())}">Pay ₹${PAY.price} with a UPI app</a><span class="muted" style="font-size:13px">Opens GPay, PhonePe, Paytm or BHIM. If it doesn't open, pay to the UPI ID below.</span>` : `<span class="muted" style="font-size:14px">Scan with any UPI app on your phone.</span>`}
+        <div class="qrwrap"><img class="qr" src="assets/upi-qr.png" alt="UPI QR code to pay ₹${PAY.price} to ${esc(PAY.upiId)}" width="168" height="168"></div>
+        <div class="upiid"><span class="spec">${esc(PAY.upiId)}</span><button type="button" class="btn quiet" id="payCopy">Copy UPI ID</button></div></div></div>
+      <form class="pstep" id="payForm" novalidate><div class="pnum">2</div><div class="pbody"><b>Send us the UTR</b>
+        <span class="muted" style="font-size:14px">After paying, open the payment in your UPI app and copy the 12-digit <b>UPI Ref No.</b> (also called UTR).</span>
+        <div class="field"><label for="payUtr" class="sr">12-digit UTR</label><input id="payUtr" inputmode="numeric" autocomplete="off" maxlength="16" placeholder="e.g. 431245678901"></div>
+        <div class="err" id="payErr" role="alert"></div>
+        <button class="btn" type="submit" id="paySend">Submit for verification</button></div></form>
+      <p class="muted" style="font-size:13px;margin:0">We check each payment by hand and unlock your pass, usually within 24 hours. Day 1 stays open meanwhile. Questions: ssbpsychlab@gmail.com</p>
+      <div class="row" style="justify-content:flex-end"><button class="btn quiet" id="payLater">Maybe later</button></div></div>`);
+    m.classList.add("paymodal");
+    $("#payX", m).onclick = closeModal; $("#payLater", m).onclick = closeModal;
+    $("#payCopy", m).onclick = async (e) => { try { await navigator.clipboard.writeText(PAY.upiId); e.target.textContent = "Copied"; } catch (x) { e.target.textContent = PAY.upiId; } setTimeout(() => (e.target.textContent = "Copy UPI ID"), 2000); };
+    $("#payUtr", m).addEventListener("input", (e) => { e.target.value = e.target.value.replace(/[^0-9]/g, "").slice(0, 12); });
+    $("#payForm", m).addEventListener("submit", async (e) => {
+      e.preventDefault(); const err = $("#payErr", m), btn = $("#paySend", m), utr = $("#payUtr", m).value.replace(/\D/g, "");
+      err.textContent = ""; if (!/^\d{12}$/.test(utr)) return (err.textContent = "The UTR is a 12-digit number. Check the payment details in your UPI app.");
+      btn.disabled = true; btn.textContent = "Sending…";
+      try { S.pass = await Store.submitPayment(utr); closeModal(); render(); payPending(true); }
+      catch (x) {
+        const k = String(x.message || "");
+        err.textContent = /utr_used/.test(k) ? "This UTR has already been submitted. If you think that's a mistake, email ssbpsychlab@gmail.com."
+          : /already_pending/.test(k) ? "You already have a payment under review." : /already_paid/.test(k) ? "Your pass is already active."
+          : /too_many/.test(k) ? "Too many attempts today. Try again tomorrow or email ssbpsychlab@gmail.com." : /utr_format/.test(k) ? "The UTR is a 12-digit number."
+          : "Couldn't send it. Check your connection and try again.";
+        btn.disabled = false; btn.textContent = "Submit for verification";
+        if (/already_/.test(k)) { await loadPass(); render(); }
+      }
+    });
+  }
+  function payPending(justSent) {
+    const m = modal(`<div class="eyebrow" style="color:var(--brass)">${justSent ? "Received" : "Payment under review"}</div>
+      <h2 style="font-size:26px">${justSent ? "Thanks, we've got it" : "We're checking your payment"}</h2>
+      <p style="margin:0">UTR <b class="spec">${esc(S.pass.utr || "")}</b>${S.pass.submitted ? ` · sent ${fmtWhen(S.pass.submitted)}` : ""}.</p>
+      <p style="margin:0">We'll match it with the ₹${PAY.price} in our account and unlock Days 2–30, usually within 24 hours. Day 1 stays open meanwhile.</p>
+      <div class="row" style="justify-content:flex-end"><button class="btn quiet" id="pCheck">Check status</button><button class="btn" id="pOk">OK</button></div>`);
+    $("#pOk", m).onclick = closeModal; $("#pCheck", m).onclick = (e) => checkPass(e.target, true);
+  }
+  async function checkPass(btn, inModal) {
+    const was = btn.textContent; btn.disabled = true; btn.textContent = "Checking…";
+    await loadPass(); btn.disabled = false; btn.textContent = was;
+    if (S.pass.status === "paid") { closeModal(); render(); passWelcome(); }
+    else if (S.pass.status === "pending") btn.textContent = "Still under review";
+    else { closeModal(); render(); if (S.pass.status === "rejected") openPay(); }
+    if (inModal && S.pass.status === "pending") setTimeout(() => (btn.textContent = was), 2500);
+  }
+  function passWelcome() {
+    try { localStorage.setItem("ssbpb:passSeen:" + S.user.id, "1"); } catch (e) {}
+    const m = modal(`<div class="eyebrow" style="color:var(--good)">Payment confirmed</div><h2 style="font-size:28px">Your full pass is active</h2>
+      <p style="margin:0">All 30 days are unlocked, with no expiry. Keep to a daily rhythm, the way the board would expect.</p>
+      <div class="row" style="justify-content:flex-end"><button class="btn" id="wOk">Go to today's tests</button></div>`);
+    $("#wOk", m).onclick = () => { closeModal(); setView("today"); };
+  }
+  // Shown once per visit (browser tab session) to signed-in candidates without a pass
+  function maybePayPopup() {
+    if (!S.user || RUN || Store.kind !== "supabase" || !S.pass || $("#modalLayer").children.length) return;
+    let seen = false; try { seen = !!localStorage.getItem("ssbpb:passSeen:" + S.user.id); } catch (e) {}
+    if (S.pass.status === "paid") { if (!seen) passWelcome(); return; }
+    if (!["none", "rejected"].includes(S.pass.status)) return;
+    const k = "ssbpb:payPop:" + S.user.id;
+    try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, "1"); } catch (e) {}
+    openPay("welcome");
+  }
 
   /* ---------- feedback (early-stage testing) ---------- */
   const snoozeKey = () => "ssbpb:fbSnooze:" + (S.user ? S.user.id : "");
@@ -561,7 +677,7 @@
     return [...m.entries()].filter(([, t]) => BATTERY_ORDER.every((k) => t[k])).map(([id, t]) => ({ id, tests: t, date: t.sd.date, day: t.sd.day }));
   }
   const nextTest = () => BATTERY_ORDER.find((t) => !S.battery.done[t]);
-  function startBattery() { saveBattery({ id: "b" + Date.now().toString(36), date: today(), done: {} }); nextInBattery(); }
+  function startBattery() { if (passLocked()) return openPay("locked"); saveBattery({ id: "b" + Date.now().toString(36), date: today(), done: {} }); nextInBattery(); }
   function nextInBattery() { if (!S.battery) return; const t = nextTest(); if (!t) return; startTest(t, TESTS[t].def, S.battery.id); }
   const ICON = {
     check: '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>',
@@ -595,7 +711,7 @@
       ${bsteps({}, null)}
       <div class="spec" style="border-top:1px dashed var(--line);padding-top:10px">About 2 hours in total · 2-minute break between tests</div>
       <div class="lockbox">${ICON.lock}<span><b>Psychologist Review is locked.</b> It opens after SD is submitted. One full review per day.</span></div>
-      <div><button class="btn" data-bstart="1">Start full battery</button></div></section>`;
+      <div>${passLocked() ? `<button class="btn" data-pay="locked">${ICON.lock} Unlock with full pass</button>` : `<button class="btn" data-bstart="1">Start full battery</button>`}</div></section>`;
   }
   function batteryBreak(prev, saveErr) {
     const nt = nextTest(); let left = BATTERY_BREAK;
@@ -742,6 +858,7 @@
   }
   function endRun() { if (RUN && RUN.timer) clearInterval(RUN.timer); RUN = null; $("#layer").innerHTML = ""; render(); }
   function startTest(test, count, battery) {
+    if (passLocked()) return openPay("locked");
     const n = dayNum(), set = setNum(n);
     RUN = { test, count, set, day: n, items: itemsFor(test, set, count), title: battery ? `${TESTS[test].code} · Full battery ${BATTERY_ORDER.indexOf(test) + 1}/4` : TESTS[test].code, paused: false, i: 0, battery: battery || null };
     RUN.responses = RUN.items.map(() => "");
@@ -878,6 +995,7 @@
     S.last = now; try { localStorage.setItem(LAST_KEY, String(now)); } catch (e) {}
   }
   function signOut(notice, page) {
+    try { if (S.user) sessionStorage.removeItem("ssbpb:payPop:" + S.user.id); } catch (e) {}
     Store.logout(); S.user = null; S.sessions = []; S.overall = null; S.battery = null; S.fbCount = 0;
     S.notice = notice || ""; S.authMode = "login"; S.page = page || (notice ? "auth" : "landing");
     history.replaceState(null, "", S.page === "auth" ? "#login" : location.pathname);
@@ -904,5 +1022,6 @@
     }
     if (!S.user && Store.isRecovery()) { S.page = "auth"; S.authMode = "recovery"; }
     render();
+    if (S.user) maybePayPopup();
   })();
 })();

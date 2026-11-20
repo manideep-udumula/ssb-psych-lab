@@ -134,6 +134,8 @@
         if (!r.ok) { const er = new Error(j.message || `Server error (${r.status}).`); er.code = j.error || "http"; throw er; }
         return j;
       },
+      async myPass() { return rest("rpc/my_pass", { method: "POST", body: "{}" }); },
+      async submitPayment(utr) { return rest("rpc/submit_payment", { method: "POST", body: JSON.stringify({ p_utr: utr }) }); },
       async aiReviews() { return rest(`ai_reviews?select=id,kind,battery_id,session_id,test,date,day,status,result,created_at&order=created_at.desc&limit=200`); },
       isLoggedIn() { return !!auth; },
       logView(v) {
@@ -189,7 +191,7 @@
       async overall(uid) { return lget("u:" + uid + ":overall", null); },
       async saveOverall(uid, o) { lset("u:" + uid + ":overall", o); },
       async feedbackCount(uid) { return lget("u:" + uid + ":feedback", []).length; },
-      logView() {}, isLoggedIn() { return !!lget("current", null); }, async rpc() { throw new Error("Admin dashboard needs Supabase."); }, async ai() { const e = new Error("Psychologist Reviews need an online account."); e.code = "local"; throw e; }, async aiReviews() { return []; },
+      logView() {}, isLoggedIn() { return !!lget("current", null); }, async rpc() { throw new Error("Admin dashboard needs Supabase."); }, async ai() { const e = new Error("Psychologist Reviews need an online account."); e.code = "local"; throw e; }, async aiReviews() { return []; }, async myPass() { return { status: "paid" }; }, async submitPayment() { throw new Error("Payments need an online account."); },
       isRecovery() { return false; }, async requestReset() { throw new Error("Password reset needs an online account."); }, async completeRecovery() { throw new Error("Password reset needs an online account."); },
       async saveFeedback(uid, f) { const l = lget("u:" + uid + ":feedback", []); l.push({ ...f, created_at: new Date().toISOString() }); lset("u:" + uid + ":feedback", l); return l.length; },
       async markFeedbackEmailed() {},

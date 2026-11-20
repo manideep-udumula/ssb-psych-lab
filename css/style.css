@@ -257,3 +257,32 @@ body.authed #chest{cursor:pointer}
 .landing-test{text-align:left;cursor:pointer;font:inherit;color:inherit;display:flex;flex-direction:column;gap:10px}
 .landing-test:hover{border-color:var(--olive)}
 .linkish{color:var(--olive);font-weight:600;font-size:14px;margin-top:auto}
+
+/* full-program pass: Today card, locked tests, payment popup */
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.banner.bad{border-left-color:var(--bad)}
+.paycard{border-left:4px solid var(--olive)}
+.paycard.pending{border-left-color:var(--brass);display:flex;flex-direction:column;gap:10px}
+.paycard-in{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.card.test.locked .tname,.card.test.locked .code{opacity:.6}
+.card.test.locked .btn{background:transparent;color:var(--olive);border:1.5px solid var(--olive)}
+.btn svg{vertical-align:-2px;margin-right:4px}
+.modal.paymodal .card{max-width:480px}
+.pay{display:flex;flex-direction:column;gap:14px}
+.pay-h{font-size:32px;text-transform:uppercase;letter-spacing:.03em;line-height:1}
+.pay .x{background:none;border:0;font-size:26px;line-height:1;color:var(--muted);cursor:pointer;padding:0 4px}
+.pay .list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;font-size:15px}
+.price{display:flex;align-items:center;gap:12px;border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);padding:10px 0}
+.price .num{font-family:var(--display);font-size:48px;font-weight:700;color:var(--olive);line-height:1}
+.price .muted{font-size:13px;line-height:1.25;text-transform:uppercase;letter-spacing:.06em}
+.pstep{display:flex;gap:12px;align-items:flex-start;margin:0}
+.pnum{flex:none;width:28px;height:28px;border-radius:50%;background:var(--olive);color:var(--surface);display:grid;place-items:center;font-weight:700;font-family:var(--mono);font-size:14px}
+.pbody{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0}
+.pbody .btn{align-self:flex-start;text-decoration:none}
+.qrwrap{align-self:flex-start;background:#fff;padding:6px;border:1px solid var(--line);border-radius:6px;line-height:0}
+.qr{width:168px;height:168px;image-rendering:pixelated}
+.upiid{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.upiid .spec{font-size:14px;word-break:break-all}
+.upiid .btn{padding:4px 10px;font-size:13px}
+#payUtr{font-family:var(--mono);letter-spacing:.08em}
+@media (max-width:520px){.paycard-in .btn{width:100%}.pay-h{font-size:28px}}

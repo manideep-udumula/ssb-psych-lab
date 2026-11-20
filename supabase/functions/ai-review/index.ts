@@ -97,6 +97,13 @@ async function overwriteSession(uid: string, sid: string, psy: any) {
   const assessment = { ...old, ...psy, source: "psychologist", rule };
   await db(`sessions?user_id=eq.${uid}&id=eq.${sid}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ assessment, overall: psy.overall }) });
 }
+// Day 1's set is free; any other set needs the ₹300 pass (an approved row in payments).
+// If the payments table can't be read, reviews stay open rather than failing for everyone.
+async function passMissing(uid: string, sets: number[]) {
+  if (!sets.some((n) => Number(n) > 1)) return false;
+  try { return !(await db(`payments?user_id=eq.${uid}&status=eq.approved&select=id&limit=1`)).length; } catch (_) { return false; }
+}
+const PASS_MSG = "Psychologist Reviews for Days 2–30 come with the full program pass. Unlock it from the Today page.";
 const lowest = (o: Record<string, number>, n: number) => Object.keys(o).sort((a, b) => o[a] - o[b]).slice(0, n);
 const busy = (e: any) => e && e.status === "processing" && Date.now() - Date.parse(e.updated_at) < 150000;
 
@@ -119,8 +126,9 @@ Deno.serve(async (req) => {
     /* ---------- single test ---------- */
     if (action === "single") {
       const sid = String(p.session_id || "").replace(/[^a-z0-9_-]/gi, "");
-      const rows = await db(`sessions?user_id=eq.${uid}&id=eq.${sid}&select=id,test,date,day,count,responses`);
+      const rows = await db(`sessions?user_id=eq.${uid}&id=eq.${sid}&select=id,test,date,day,set_no,count,responses`);
       const s = rows[0]; if (!s) return fail("not_found", "That test isn't in your file.", 404);
+      if (await passMissing(uid, [s.set_no])) return fail("pass", PASS_MSG, 402);
       const existing = (await db(`ai_reviews?user_id=eq.${uid}&kind=eq.single&session_id=eq.${sid}&select=*`))[0];
       if (existing?.status === "done") return json({ review: existing });
       if (busy(existing)) return fail("busy", "Your psychologist is already writing this review.", 409);
@@ -149,7 +157,8 @@ Deno.serve(async (req) => {
     if (action === "battery") {
       const bid = String(p.battery_id || "").replace(/[^a-z0-9_-]/gi, "");
       if (!bid) return fail("bad_request", "Missing battery.");
-      const rows = await db(`sessions?user_id=eq.${uid}&assessment->>battery=eq.${bid}&select=id,test,date,day,count,responses,created_at&order=created_at.asc`);
+      const rows = await db(`sessions?user_id=eq.${uid}&assessment->>battery=eq.${bid}&select=id,test,date,day,set_no,count,responses,created_at&order=created_at.asc`);
+      if (await passMissing(uid, rows.map((r: any) => r.set_no))) return fail("pass", PASS_MSG, 402);
       const sess: Record<string, any> = {}; rows.forEach((s: any) => (sess[s.test] = s));
       const missing = ["tat", "wat", "srt", "sd"].filter((t) => !sess[t]);
       if (missing.length) return fail("incomplete", `Finish the full battery first. Still to do: ${missing.map((m) => m.toUpperCase()).join(", ")}.`);

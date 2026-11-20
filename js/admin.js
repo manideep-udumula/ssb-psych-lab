@@ -33,7 +33,7 @@
   const avatar = (u) => `<span class="av" style="background:${AV[(u.chest_no || 0) % AV.length]}" aria-hidden="true">${esc((u.name || "?").trim().charAt(0).toUpperCase())}</span>`;
   const scoreCls = (v) => (v == null ? "neutral" : v >= 7 ? "good" : v >= 5 ? "warn" : "bad");
 
-  const S = { days: 30, tab: "overview", ov: null, users: null, detail: {}, sort: { k: "chest_no", dir: 1 }, q: "", filter: "all", loading: false };
+  const S = { days: 30, tab: "overview", ov: null, users: null, detail: {}, sort: { k: "chest_no", dir: 1 }, q: "", filter: "all", loading: false, pay: null, payErr: "" };
 
   /* ---------- tooltip (delegated) ---------- */
   const tip = $("#tip");
@@ -167,6 +167,11 @@
     S.ov = ov; S.ai = ai;
   }
   const AI_BUDGET = 400000; // must match AI_TOKEN_BUDGET in the ai-review Edge Function
+  async function loadPayments() {
+    try { S.pay = await Store.rpc("admin_payments"); S.payErr = ""; } catch (e) { S.pay = null; S.payErr = e.message; }
+    const n = (S.pay || []).filter((p) => p.status === "pending").length, b = $("#payBadge");
+    if (b) { b.hidden = !n; b.textContent = n; }
+  }
   async function loadUsers() { S.users = await Store.rpc("admin_users"); }
   async function loadDetail(id) { if (!S.detail[id]) S.detail[id] = await Store.rpc("admin_user_detail", { uid: id }); return S.detail[id]; }
 
@@ -338,12 +343,50 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeUser(); });
 
   /* =================== shell =================== */
+  /* ---------- payments: ₹300 pass claims, checked against the bank/UPI app ---------- */
+  function viewPayments() {
+    if (S.payErr) return `<section class="panel"><h3>Payments aren't set up yet</h3><p class="muted" style="margin:0">The payments tables haven't been added to the database. Apply supabase/payments.sql, then refresh. (${esc(S.payErr)})</p></section>`;
+    if (!S.pay) return `<div class="empty">Loading…</div>`;
+    const pend = S.pay.filter((p) => p.status === "pending"), ok = S.pay.filter((p) => p.status === "approved"), rej = S.pay.filter((p) => p.status === "rejected");
+    const rev = ok.reduce((a, p) => a + (+p.amount || 0), 0);
+    const who = (p) => `<b>${esc(p.name || "—")}</b> <span class="muted">· Chest ${p.chest ?? "—"} · ${esc(p.email || "")}</span>`;
+    const card = (p) => `<div class="paycl" data-pid="${p.id}"><div class="paycl-main"><div>${who(p)}</div>
+        <div class="paycl-utr"><span class="lbl">UTR</span><span class="mono">${esc(p.utr)}</span><button class="btn quiet sm" data-copy="${esc(p.utr)}">Copy</button><span class="muted">₹${num(p.amount)} · sent ${fmtDT(p.created_at)}</span></div></div>
+        <div class="paycl-act"><input class="sm" data-reason="${p.id}" maxlength="140" placeholder="Reason, if rejecting" aria-label="Reason for rejecting">
+          <button class="btn quiet sm" data-reject="${p.id}">Reject</button><button class="btn sm" data-approve="${p.id}">Approve</button></div></div>`;
+    const row = (p) => `<tr><td>${fmtDT(p.reviewed_at || p.created_at)}</td><td>${who(p)}</td><td class="mono">${esc(p.utr)}</td><td>₹${num(p.amount)}</td><td><span class="pill ${p.status === "approved" ? "good" : "bad"}">${p.status === "approved" ? "Approved" : "Rejected"}</span>${p.note ? `<div class="muted" style="font-size:12px">${esc(p.note)}</div>` : ""}</td></tr>`;
+    return `<section class="tiles"><div class="tile accent"><span class="lbl">To verify</span><span class="val">${num(pend.length)}</span><span class="meta">waiting for you</span></div>
+      <div class="tile"><span class="lbl">Passes sold</span><span class="val">${num(ok.length)}</span></div>
+      <div class="tile"><span class="lbl">Revenue</span><span class="val">₹${num(rev)}</span><span class="meta">approved payments, all time</span></div>
+      <div class="tile"><span class="lbl">Rejected</span><span class="val">${num(rej.length)}</span></div></section>
+    <div class="hqgrid"><section class="panel span-12"><div class="panel-h"><h3>Waiting for verification</h3><span class="updated">Find each UTR in your bank or UPI app before approving</span></div>
+      ${pend.length ? pend.map(card).join("") : `<div class="empty">Nothing to verify right now.</div>`}<div class="err" id="payActErr" role="alert"></div></section>
+    <section class="panel span-12"><div class="panel-h"><h3>Reviewed</h3><span class="updated">newest first</span></div>
+      ${ok.length + rej.length ? `<div class="tablewrap"><table class="t"><thead><tr><th>When</th><th>Candidate</th><th>UTR</th><th>Amount</th><th>Status</th></tr></thead><tbody>${[...ok, ...rej].sort((a, b) => String(b.reviewed_at).localeCompare(String(a.reviewed_at))).map(row).join("")}</tbody></table></div>` : `<div class="empty">No payments reviewed yet.</div>`}</section></div>`;
+  }
+  function bindPayments() {
+    const m = $("#hq");
+    m.querySelectorAll("[data-copy]").forEach((b) => (b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = "Copied"; setTimeout(() => (b.textContent = "Copy"), 1500); } catch (e) {} }));
+    const act = async (id, approve) => {
+      const reason = (m.querySelector(`[data-reason="${id}"]`) || {}).value || "";
+      const p = S.pay.find((x) => String(x.id) === String(id));
+      const q = approve ? `Approve ₹${p.amount} from ${p.name || "this candidate"} (UTR ${p.utr})?\n\nOnly approve once you've found this UTR in your bank or UPI app.` : `Reject UTR ${p.utr} from ${p.name || "this candidate"}?${reason ? "" : "\n\nTip: add a reason so they know what to fix."}`;
+      if (!confirm(q)) return;
+      m.querySelectorAll(`[data-pid="${id}"] button`).forEach((b) => (b.disabled = true));
+      try { S.pay = await Store.rpc("admin_review_payment", { pid: +id, approve, reason }); await loadPayments(); render(); }
+      catch (e) { $("#payActErr").textContent = "Couldn't save: " + e.message; m.querySelectorAll(`[data-pid="${id}"] button`).forEach((b) => (b.disabled = false)); }
+    };
+    m.querySelectorAll("[data-approve]").forEach((b) => (b.onclick = () => act(b.dataset.approve, true)));
+    m.querySelectorAll("[data-reject]").forEach((b) => (b.onclick = () => act(b.dataset.reject, false)));
+  }
+
   function render() {
     document.querySelectorAll("#hqNav .tab").forEach((b) => b.setAttribute("aria-current", b.dataset.tab === S.tab ? "page" : "false"));
-    $("#range").style.visibility = S.tab === "candidates" ? "hidden" : "visible";
+    $("#range").style.visibility = S.tab === "candidates" || S.tab === "payments" ? "hidden" : "visible";
     const m = $("#hq");
     const stamp = S.ov ? `<div class="updated">Updated ${fmtDT(S.ov.generated_at)} · all times IST</div>` : "";
-    m.innerHTML = (S.tab === "overview" ? viewOverview() : S.tab === "candidates" ? viewCandidates() : viewFeedback()) + stamp;
+    m.innerHTML = (S.tab === "overview" ? viewOverview() : S.tab === "candidates" ? viewCandidates() : S.tab === "payments" ? viewPayments() : viewFeedback()) + stamp;
+    if (S.tab === "payments") bindPayments();
     if (S.tab === "overview") drawOverview();
     if (S.tab === "feedback") drawFeedback();
     if (S.tab === "candidates") bindCandidates();
@@ -356,7 +399,7 @@
   }
   async function refresh(all) {
     const btn = $("#refresh"); btn.disabled = true;
-    try { await Promise.all([loadOverview(), all || !S.users ? loadUsers() : null]); S.detail = {}; render(); }
+    try { await Promise.all([loadOverview(), all || !S.users ? loadUsers() : null, loadPayments()]); S.detail = {}; render(); }
     catch (e) { $("#hq").innerHTML = `<div class="panel"><h3>Couldn't load the dashboard</h3><p class="muted" style="margin:0">${esc(e.message)}</p></div>`; }
     finally { btn.disabled = false; }
   }

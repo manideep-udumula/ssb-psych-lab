@@ -118,3 +118,16 @@ html:has(body.hq){overflow-x:hidden}
 .drawer.open{visibility:visible;transition:transform .32s cubic-bezier(.2,.7,.2,1),visibility 0s}
 @media (max-width:560px){#range button{padding:6px 9px;font-size:12px}#refresh{padding:5px 9px}}
 @media (max-width:560px){.heat{gap:1px;font-size:9px}}
+
+/* payments tab */
+.tab .badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:var(--brass);color:#fff;font-size:11px;font-weight:700;vertical-align:1px}
+.paycl{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+.paycl-main{display:flex;flex-direction:column;gap:6px;min-width:0}
+.paycl-utr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px}
+.paycl-utr .lbl{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.paycl-utr .mono,.t .mono{font-family:var(--mono);letter-spacing:.06em}
+.paycl-utr .mono{font-size:17px;font-weight:600}
+.paycl-act{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.paycl-act input.sm{min-width:220px;padding:6px 10px;font-size:13px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);font:inherit}
+.btn.sm{padding:5px 12px;font-size:13px}
+@media (max-width:640px){.paycl-act{width:100%}.paycl-act input.sm{flex:1;min-width:0}}
