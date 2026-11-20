@@ -37,7 +37,7 @@
 
   /* ---------- state ---------- */
   const S = { user: null, sessions: [], overall: null, choice: {}, view: "today", reportId: null, filter: "all", page: "landing", notice: "", last: 0, authMode: "login", ai: { reviews: [], status: null, pending: {}, err: {} }, battery: null, pass: null };
-  const PAY = Object.assign({ upiId: "", payee: "SSB Psych Lab", price: 300, regularPrice: 0, launchSeats: 0 }, (window.SSB_CONFIG || {}).payment || {});
+  const PAY = Object.assign({ upiId: "", payee: "SSB Psych Lab", price: 299, regularPrice: 0, launchSeats: 0 }, (window.SSB_CONFIG || {}).payment || {});
   PAY.launch = PAY.regularPrice > PAY.price; PAY.left = null; PAY.seats = PAY.launchSeats;
   // Live offer from the server: price now, regular price, and how many launch passes are really left
   function applyOffer(o) {
@@ -506,7 +506,7 @@
   }
 
 
-  /* ---------- full-program pass (₹300 by UPI, approved by hand in HQ) ---------- */
+  /* ---------- full-program pass (₹299 by UPI, approved by hand in HQ) ---------- */
   // Day 1's test set is free; sets 2–30 need the pass. Keyed to the content set, so restarting the program
   // only replays Day 1. If the pass status can't be read (offline mode, or the server isn't set up), nothing is locked.
   async function loadPass() {

@@ -344,7 +344,7 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeUser(); });
 
   /* =================== shell =================== */
-  /* ---------- payments: ₹300 pass claims, checked against the bank/UPI app ---------- */
+  /* ---------- payments: ₹299 pass claims, checked against the bank/UPI app ---------- */
   function viewPayments() {
     if (S.payErr) return `<section class="panel"><h3>Payments aren't set up yet</h3><p class="muted" style="margin:0">The payments tables haven't been added to the database. Apply supabase/payments.sql, then refresh. (${esc(S.payErr)})</p></section>`;
     if (!S.pay) return `<div class="empty">Loading…</div>`;

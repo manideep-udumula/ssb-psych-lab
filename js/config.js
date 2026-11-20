@@ -7,8 +7,8 @@ window.SSB_CONFIG = {
   supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxianlpdWVuaXJoeG95ZGZudXJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5MjE2MDAsImV4cCI6MjExMDQ5NzYwMH0.R_B47JQpbtj5Fywh89IWckLkX9qDaBh-LPS3kspLmXU",
   // Full-program pass: one UPI payment, checked by hand in HQ → Payments.
   // If you change the UPI ID or a price, regenerate the QR images and update private.settings.
-  payment: { upiId: "ssbpsychlab@ybl", payee: "SSB Psych Lab", price: 300, regularPrice: 999, launchSeats: 100 },
-  // Launch offer: the first 100 passes cost ₹300, then ₹999. The live numbers come from the database (private.settings);
+  payment: { upiId: "ssbpsychlab@ybl", payee: "SSB Psych Lab", price: 299, regularPrice: 999, launchSeats: 100 },
+  // Launch offer: the first 100 passes cost ₹299, then ₹999. The live numbers come from the database (private.settings);
   // these are only fallbacks. Each price needs its QR at assets/upi-qr-<price>.png.
   // Feedback is saved in Supabase; a database trigger emails it to ssbpsychlab@gmail.com
   // (address set in the private.settings table, not here).

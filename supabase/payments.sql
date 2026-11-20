@@ -1,9 +1,9 @@
--- SSB Psych Lab · ₹300 full-program pass, paid by UPI and approved by hand in HQ.
+-- SSB Psych Lab · ₹299 full-program pass, paid by UPI and approved by hand in HQ.
 -- Part 1 (this file) only ADDS objects, so it is safe to apply before the feature is live.
 -- Part 2 (payments_enforce.sql) locks the server down and is applied when the branch is merged.
 
--- Launch offer: the first 100 passes (approved or awaiting approval) are ₹300; after that the regular ₹999 applies.
-insert into private.settings(key, value) values ('pass_price', '300'), ('pass_regular_price', '999'), ('launch_seats', '100')
+-- Launch offer: the first 100 passes (approved or awaiting approval) are ₹299; after that the regular ₹999 applies.
+insert into private.settings(key, value) values ('pass_price', '299'), ('pass_regular_price', '999'), ('launch_seats', '100')
   on conflict (key) do nothing;
 
 create table if not exists public.payments (
@@ -33,7 +33,7 @@ $$;
 -- Current offer, counted from real payments. Public, so the landing page can show it.
 create or replace function private.pass_offer() returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
-declare launch int := coalesce((select value from private.settings where key = 'pass_price')::int, 300);
+declare launch int := coalesce((select value from private.settings where key = 'pass_price')::int, 299);
         regular int := coalesce((select value from private.settings where key = 'pass_regular_price')::int, launch);
         seats int := coalesce((select value from private.settings where key = 'launch_seats')::int, 0);
         used int := (select count(*) from public.payments where status in ('approved','pending'));
