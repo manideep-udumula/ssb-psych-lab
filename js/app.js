@@ -514,7 +514,7 @@
   function passCard(n) {
     if (!S.pass || passOpen()) return "";
     if (S.pass.status === "pending") return `<section class="card paycard pending"><div class="row" style="justify-content:space-between"><span class="eyebrow" style="color:var(--brass)">Payment under review</span><span class="pill warn">UTR ${maskUtr(S.pass.utr)}</span></div>
-      <p style="margin:0">We've got your ₹${PAY.price} payment details${S.pass.submitted ? ` (sent ${fmtWhen(S.pass.submitted)})` : ""}. Days 2–30 unlock as soon as it's confirmed, usually within 24 hours.</p>
+      <p style="margin:0">We've got your ₹${PAY.price} payment details${S.pass.submitted ? ` (sent ${fmtWhen(S.pass.submitted)})` : ""}. Days 2–30 unlock as soon as it's confirmed, usually within a few minutes.</p>
       <div class="row"><button class="btn quiet" data-paycheck="1">Check status</button></div></section>`;
     const day1 = setNum(n) === 1;
     return `<section class="card paycard"><div class="paycard-in"><div><div class="eyebrow" style="color:var(--olive)">Full program pass · ₹${PAY.price} once</div>
@@ -542,14 +542,14 @@
         <li class="str">No time limit. Take the 30 sets at your own pace</li></ul>
       <div class="pstep"><div class="pnum">1</div><div class="pbody"><b>Pay ₹${PAY.price} by UPI</b>
         ${isPhone() ? `<a class="btn" id="payApp" href="${esc(upiLink())}">Pay ₹${PAY.price} with a UPI app</a><span class="muted" style="font-size:13px">Opens GPay, PhonePe, Paytm or BHIM. If it doesn't open, pay to the UPI ID below.</span>` : `<span class="muted" style="font-size:14px">Scan with any UPI app on your phone.</span>`}
-        <div class="qrwrap"><img class="qr" src="assets/upi-qr.png" alt="UPI QR code to pay ₹${PAY.price} to ${esc(PAY.upiId)}" width="168" height="168"></div>
+        <div class="qrwrap"><img class="qr" src="assets/upi-qr.png?v=2" alt="UPI QR code to pay ₹${PAY.price} to ${esc(PAY.upiId)}" width="168" height="168"></div>
         <div class="upiid"><span class="spec">${esc(PAY.upiId)}</span><button type="button" class="btn quiet" id="payCopy">Copy UPI ID</button></div></div></div>
       <form class="pstep" id="payForm" novalidate><div class="pnum">2</div><div class="pbody"><b>Send us the UTR</b>
         <span class="muted" style="font-size:14px">After paying, open the payment in your UPI app and copy the 12-digit <b>UPI Ref No.</b> (also called UTR).</span>
         <div class="field"><label for="payUtr" class="sr">12-digit UTR</label><input id="payUtr" inputmode="numeric" autocomplete="off" maxlength="16" placeholder="e.g. 431245678901"></div>
         <div class="err" id="payErr" role="alert"></div>
         <button class="btn" type="submit" id="paySend">Submit for verification</button></div></form>
-      <p class="muted" style="font-size:13px;margin:0">We check each payment by hand and unlock your pass, usually within 24 hours. Day 1 stays open meanwhile. Questions: ssbpsychlab@gmail.com</p>
+      <p class="muted" style="font-size:13px;margin:0">We confirm your payment and unlock your pass within a few minutes. Day 1 stays open meanwhile. Questions: ssbpsychlab@gmail.com</p>
       <div class="row" style="justify-content:flex-end"><button class="btn quiet" id="payLater">Maybe later</button></div></div>`);
     m.classList.add("paymodal");
     $("#payX", m).onclick = closeModal; $("#payLater", m).onclick = closeModal;
@@ -575,7 +575,7 @@
     const m = modal(`<div class="eyebrow" style="color:var(--brass)">${justSent ? "Received" : "Payment under review"}</div>
       <h2 style="font-size:26px">${justSent ? "Thanks, we've got it" : "We're checking your payment"}</h2>
       <p style="margin:0">UTR <b class="spec">${esc(S.pass.utr || "")}</b>${S.pass.submitted ? ` · sent ${fmtWhen(S.pass.submitted)}` : ""}.</p>
-      <p style="margin:0">We'll match it with the ₹${PAY.price} in our account and unlock Days 2–30, usually within 24 hours. Day 1 stays open meanwhile.</p>
+      <p style="margin:0">We'll match it with the ₹${PAY.price} in our account and unlock Days 2–30 within a few minutes. Tap Check status to see if it's done.</p>
       <div class="row" style="justify-content:flex-end"><button class="btn quiet" id="pCheck">Check status</button><button class="btn" id="pOk">OK</button></div>`);
     $("#pOk", m).onclick = closeModal; $("#pCheck", m).onclick = (e) => checkPass(e.target, true);
   }
