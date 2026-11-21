@@ -55,7 +55,7 @@
   /* ---------- routing ---------- */
   function setView(v, id) {
     S.view = v; S.reportId = id || null;
-    const h = (v === "report" || v === "battery") && id ? v + "-" + id : v;
+    const h = (v === "report" || v === "battery" || v === "oir") && id ? v + "-" + id : v;
     if (location.hash.slice(1) !== h) history.replaceState(null, "", "#" + h);
     render(); window.scrollTo(0, 0);
   }
@@ -64,6 +64,7 @@
     if (!S.user) { S.page = GUEST_ROUTES.includes(h) ? "auth" : "landing"; if (S.page === "auth") S.authMode = h === "reset" ? "recovery" : h; }
     if (h.startsWith("report-")) { S.view = "report"; S.reportId = h.slice(7); }
     else if (h.startsWith("battery-")) { S.view = "battery"; S.reportId = h.slice(8); }
+    else if (h.startsWith("oir-")) { S.view = "oir"; S.reportId = h.slice(4); }
     else if (["today", "progress", "interview"].includes(h)) S.view = h; else S.view = "today";
   }
   window.addEventListener("hashchange", () => { readHash(); render(); });
@@ -84,13 +85,14 @@
     }
     nav.hidden = false; $("#userBtns").hidden = false; $("#hqBtn").hidden = !S.isAdmin;
     $("#chest").textContent = `CHEST NO. ${S.user.chest}`;
-    document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-current", b.dataset.view === (S.view === "report" || S.view === "battery" ? "progress" : S.view) ? "page" : "false"));
+    document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-current", b.dataset.view === (["report", "battery", "oir"].includes(S.view) ? "progress" : S.view) ? "page" : "false"));
     let html = "";
     if (!Store.persistent) html += `<div class="banner">This browser is blocking local storage, so progress will be lost when you close the page.</div>`;
     if (S.view === "today") html += viewToday();
     else if (S.view === "progress") html += viewProgress();
     else if (S.view === "report") html += viewReport();
     else if (S.view === "battery") html += viewBattery();
+    else if (S.view === "oir") html += viewOirResult();
     else html += viewInterview();
     main.innerHTML = html; bind(); feedbackBanner();
     const key = S.view;
@@ -222,6 +224,8 @@
     S.sessions = await Store.sessions(S.user.id); S.overall = await Store.overall(S.user.id);
     try { S.fbCount = await Store.feedbackCount(S.user.id); } catch (e) { S.fbCount = 0; }
     S.battery = loadBattery(); S.ai = { reviews: [], status: null, pending: {}, err: {} }; loadAI();
+    S.oir = await Store.oirAttempts(S.user.id).catch(() => []);
+    loadOirIndex().then(() => { if (S.user && ["today", "progress", "oir"].includes(S.view) && !RUN) render(); });
     S.isAdmin = false; if (Store.kind === "supabase") Store.rpc("is_admin").then((v) => { S.isAdmin = v === true; const b = $("#hqBtn"); if (b) b.hidden = !S.isAdmin; }).catch(() => {});
   }
 
@@ -259,6 +263,7 @@
         <div class="muted" style="font-size:14px">${n > PROGRAM_DAYS ? `Program complete · now repeating set ${set}` : `Day ${n} of ${PROGRAM_DAYS}`} · ${esc(S.user.entry)} entry · ${todays.length ? `${todays.length} test${todays.length > 1 ? "s" : ""} today` : "No test taken today yet"} · ${streak()} day streak</div>
         <div class="strip" aria-label="30 day program">${strip}</div></div></div></section>
     ${batteryCard()}
+    ${oirCard()}
     <section><div class="section-h" style="margin-bottom:12px"><h2>Single tests</h2><span class="muted" style="font-size:14px">Day ${n} uses set ${pad(set)} of 30. Timings follow the SSB format.</span></div>
       <div class="tests">${cards}</div></section>
     <section class="card"><div class="section-h" style="margin-bottom:14px"><h2>OLQ profile</h2>${lastA ? `<button class="btn ghost" data-report="${lastA.id}">Last report: ${TESTS[lastA.test].code} · ${r1(lastA.assessment.overall)}</button>` : ""}</div>
@@ -354,6 +359,7 @@
       <div class="kpi"><b style="color:${delta == null ? "inherit" : delta >= 0 ? "var(--good)" : "var(--bad)"}">${delta == null ? "—" : (delta >= 0 ? "+" : "") + r1(delta)}</b><span>Change: first 3 vs last 3 tests</span></div>
     </div>
     ${reviewsList()}
+    ${oirHistory()}
     <section class="card"><div class="section-h" style="margin-bottom:6px"><h2 style="font-size:22px">Overall score by test</h2><span class="muted" style="font-size:13px">Dashed line = 7.0 recommendable</span></div>
       ${a.length ? `<div class="chart" id="trend"></div>` : `<p class="muted">Take a test to start your trend line.</p>`}</section>
     <section class="card"><div class="section-h" style="margin-bottom:14px"><h2 style="font-size:22px">Average OLQ profile</h2><span class="muted" style="font-size:13px">${a.length} test${a.length === 1 ? "" : "s"} · weakest three marked Focus</span></div>${olqBlock(a.length ? olqAverages(a) : null)}</section>
@@ -454,6 +460,9 @@
     m.querySelectorAll("[data-count]").forEach((b) => b.addEventListener("click", () => { const [k, v] = b.dataset.count.split(":"); S.choice[k] = +v; render(); }));
     m.querySelectorAll("[data-start]").forEach((b) => b.addEventListener("click", () => startTest(b.dataset.start, S.choice[b.dataset.start] || TESTS[b.dataset.start].def)));
     m.querySelectorAll("[data-report]").forEach((b) => b.addEventListener("click", () => { S.filter = "all"; setView("report", b.dataset.report); }));
+    m.querySelectorAll("[data-oir]").forEach((b) => b.addEventListener("click", () => startOir(b.dataset.oir, b)));
+    m.querySelectorAll("[data-oirres]").forEach((b) => b.addEventListener("click", () => setView("oir", b.dataset.oirres)));
+    m.querySelectorAll("[data-oirfilter]").forEach((b) => b.addEventListener("click", () => { S.oirFilter = b.dataset.oirfilter; render(); }));
     m.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.goto)));
     m.querySelectorAll("[data-psy]").forEach((b) => b.addEventListener("click", () => requestSingle(b.dataset.psy)));
     m.querySelectorAll("[data-psyb]").forEach((b) => b.addEventListener("click", () => requestBattery(b.dataset.psyb)));
@@ -860,6 +869,156 @@
     const b = document.createElement("div"); b.className = "banner"; b.textContent = msg + " ";
     if (retry) { const btn = document.createElement("button"); btn.className = "linkbtn"; btn.textContent = "Retry"; btn.onclick = async () => { btn.textContent = "Saving…"; try { await retry(); b.textContent = "Saved."; } catch (e) { btn.textContent = "Retry"; } }; b.appendChild(btn); }
     $("#main").prepend(b);
+  }
+
+  /* ---------- OIR · Officer Intelligence Rating ----------
+     Question sets live in data/oir/ (see data/oir/README.md); data/oir/index.json lists them.
+     Scoring: 1 mark per correct answer, no negative marking. The combined % across both booklets
+     gives the rating, OIR 1 (best) to OIR 5. DIPR doesn't publish its cutoffs and grades relative to the batch,
+     so these are fixed practice bands, kept here so they are easy to tune. */
+  const OIR_BANDS = [
+    { r: 1, min: 80, label: "Outstanding" }, { r: 2, min: 65, label: "Excellent" }, { r: 3, min: 50, label: "Above Average" },
+    { r: 4, min: 35, label: "Average" }, { r: 5, min: 0, label: "Below Average" },
+  ];
+  const oirBand = (pct) => OIR_BANDS.find((b) => pct >= b.min);
+  const OIR_CLS = { 1: "good", 2: "good", 3: "neutral", 4: "warn", 5: "bad" };
+  const OPT_L = "ABCDEFGH";
+  S.oirSets = null; S.oirData = {}; S.oirFilter = "wrong";
+  async function loadOirIndex() {
+    try { const r = await fetch("data/oir/index.json", { cache: "no-cache" }); const j = await r.json(); S.oirSets = (j.sets || []).filter((x) => x && x.file && x.no != null); }
+    catch (e) { S.oirSets = []; }
+  }
+  async function loadOirSet(no) {
+    if (S.oirData[no]) return S.oirData[no];
+    const meta = (S.oirSets || []).find((x) => +x.no === +no); if (!meta) throw new Error("This booklet is no longer available.");
+    const r = await fetch("data/oir/" + meta.file, { cache: "no-cache" }); if (!r.ok) throw new Error("Couldn't load the booklet.");
+    const j = await r.json();
+    j.booklets = (j.booklets || []).filter((b) => Array.isArray(b.questions) && b.questions.length)
+      .map((b) => ({ name: b.name || "Booklet", minutes: +b.minutes || 17, questions: b.questions.filter((q) => Array.isArray(q.options) && q.options.length >= 2 && Number.isInteger(q.answer)) }));
+    j.title = j.title || meta.title || "OIR Booklet " + pad(no);
+    return (S.oirData[no] = j);
+  }
+  // images may be relative to data/oir/ or full https URLs; nothing else is allowed into src
+  const oirSrc = (p) => (/^https:\/\//i.test(p) ? p : "data/oir/" + String(p).replace(/^\/+|\.\.\//g, ""));
+  const optHTML = (o) => (o && typeof o === "object" ? `${o.img ? `<img src="${esc(oirSrc(o.img))}" alt="${esc(o.alt || o.text || "option figure")}" loading="lazy">` : ""}${o.text ? `<span>${esc(o.text)}</span>` : ""}` : `<span>${esc(o)}</span>`);
+  const optImg = (o) => o && typeof o === "object" && o.img;
+  const oirTotals = (a) => a.books.reduce((t, b) => ({ c: t.c + b.correct, n: t.n + b.total }), { c: 0, n: 0 });
+
+  function oirCard() {
+    if (!S.oirSets || !S.oirSets.length) return "";
+    const best = (no) => { const l = (S.oir || []).filter((a) => +a.set === +no); return l.length ? Math.min(...l.map((a) => a.rating)) : null; };
+    const rows = S.oirSets.map((x) => { const b = best(x.no);
+      return `<div class="oirrow"><div><b>${esc(x.title || "OIR Booklet " + pad(x.no))}</b><div class="spec muted">${x.verbal != null ? `${x.verbal} verbal + ${x.nonverbal || 0} non-verbal` : "Verbal + non-verbal"}${x.minutes ? ` · ${x.minutes} min` : ""}</div></div>
+        <div class="row" style="gap:8px;flex-wrap:nowrap">${b ? `<span class="pill ${OIR_CLS[b]}">Best OIR ${b}</span>` : ""}<button class="btn${b ? " quiet" : ""}" data-oir="${esc(String(x.no))}">${b ? "Retake" : "Start"}</button></div></div>`; }).join("");
+    return `<section class="card oircard"><div><span class="eyebrow" style="color:var(--olive)">Screening test · Day 1 at the board</span><h2 style="font-size:24px;margin-top:4px">OIR · Officer Intelligence Rating</h2>
+      <p class="muted" style="margin:6px 0 0">Two timed booklets of multiple-choice questions, verbal then non-verbal. No negative marking. You get an OIR rating from 1 (Outstanding) to 5 at the end.</p></div>
+      <div class="oirlist">${rows}</div></section>`;
+  }
+
+  async function startOir(no, btn) {
+    if (RUN) return;
+    const was = btn ? btn.textContent : ""; if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
+    let set; try { set = await loadOirSet(no); } catch (e) { if (btn) { btn.disabled = false; btn.textContent = was; } return alertBanner(e.message || "Couldn't load the booklet."); }
+    if (btn) { btn.disabled = false; btn.textContent = was; }
+    if (!set.booklets.length) return alertBanner("This booklet has no questions yet.");
+    set.booklets.forEach((b) => b.questions.forEach((q) => { [q.img, ...q.options.map((o) => o && o.img)].filter(Boolean).forEach((u) => { const im = new Image(); im.src = oirSrc(u); }); }));
+    RUN = { test: "oir", no: +no, title: set.title, books: set.booklets, b: 0, answers: set.booklets.map((b) => b.questions.map(() => null)), times: [], paused: false, started: null };
+    envShell("OIR"); oirIntro();
+  }
+  function oirIntro() {
+    const bk = RUN.books[RUN.b], last = RUN.b === RUN.books.length - 1, nq = bk.questions.length;
+    $("#envSub").textContent = `Booklet ${RUN.b + 1} of ${RUN.books.length}`; $("#clock").textContent = fmtClock(bk.minutes * 60); setBar(0);
+    $("#envIn").innerHTML = `<div class="card instr"><div class="eyebrow">${esc(RUN.title)} · Booklet ${RUN.b + 1}</div><h2 style="font-size:30px">${esc(bk.name)}</h2><ol>
+      <li>${nq} question${nq === 1 ? "" : "s"} in ${bk.minutes} minutes.</li>
+      <li>Tap the option you think is right. Tap it again to clear it. You can change answers until you submit the booklet.</li>
+      <li>There's no negative marking, so answer every question, even if you have to guess.</li>
+      <li>When the time ends, the booklet is collected automatically${last ? "" : ` and Booklet ${RUN.b + 2} follows straight after, as at the board`}.</li></ol>
+      <div class="row"><button class="btn" id="beginBtn">Begin booklet ${RUN.b + 1}</button>${RUN.b ? `<span class="muted" style="font-size:14px">Starts by itself in <b id="autoS">20</b> s</span>` : ""}</div></div>`;
+    const go = () => { if (RUN && RUN.autoT) clearInterval(RUN.autoT); runOirBooklet(); };
+    $("#beginBtn").onclick = go;
+    if (RUN.b) { let k = 20; RUN.autoT = setInterval(() => { if (!RUN || RUN.paused) return; k--; const el = $("#autoS"); if (el) el.textContent = k; if (k <= 0) go(); }, 1000); }
+  }
+  function runOirBooklet() {
+    const bk = RUN.books[RUN.b], A = RUN.answers[RUN.b], T = bk.minutes * 60;
+    RUN.left = T; RUN.bStart = Date.now(); RUN.bDone = false; if (!RUN.started) RUN.started = Date.now();
+    $("#envIn").innerHTML = `<div class="oirbook">${bk.questions.map((q, i) => `<fieldset class="oirq" id="oq${i}"><legend><span class="qn">${i + 1}</span><span>${esc(q.q || "")}</span></legend>
+        ${q.img ? `<img class="oirimg" src="${esc(oirSrc(q.img))}" alt="${esc(q.alt || "Figure for question " + (i + 1))}" loading="lazy">` : ""}
+        <div class="oiropts${q.options.some(optImg) ? " imgs" : ""}">${q.options.map((o, j) => `<button type="button" class="oiropt" data-q="${i}" data-o="${j}" aria-pressed="false"><span class="ol">${OPT_L[j]}</span>${optHTML(o)}</button>`).join("")}</div></fieldset>`).join("")}
+      <div class="oirsubmit"><span class="muted" id="oirCount"></span><button class="btn" id="oirDone">Submit booklet ${RUN.b + 1}</button></div></div>`;
+    const body = document.querySelector(".env-body"); if (body) body.scrollTop = 0;
+    const upd = () => { const n = A.filter((x) => x != null).length; $("#envSub").textContent = `Booklet ${RUN.b + 1} · ${bk.name} · ${n}/${A.length} answered`; $("#oirCount").textContent = `${A.length - n} unanswered`; setBar(n / A.length); };
+    $("#envIn .oirbook").addEventListener("click", (e) => {   // listener lives on this booklet's own list, so booklets never share answers
+      const b = e.target.closest(".oiropt"); if (!b || !RUN || RUN.test !== "oir") return;
+      const i = +b.dataset.q, j = +b.dataset.o; A[i] = A[i] === j ? null : j;
+      b.parentNode.querySelectorAll(".oiropt").forEach((x) => { const on = +x.dataset.o === A[i]; x.classList.toggle("on", on); x.setAttribute("aria-pressed", on); });
+      upd();
+    });
+    $("#oirDone").onclick = async () => {
+      const left = A.filter((x) => x == null).length;
+      if (left && !(await confirmBox(`Submit booklet ${RUN.b + 1}?`, `${left} question${left === 1 ? " is" : "s are"} unanswered. There's no negative marking, so a guess can only help.`, "Submit booklet"))) return;
+      endBooklet();
+    };
+    upd(); tick((dt) => { RUN.left -= dt; setClock(RUN.left, T); if (RUN.left <= 0) endBooklet(); });
+  }
+  function endBooklet() {
+    if (!RUN || RUN.test !== "oir" || RUN.bDone) return; RUN.bDone = true; clearInterval(RUN.timer); closeModal();
+    RUN.times[RUN.b] = Math.min(Math.round((Date.now() - RUN.bStart) / 1000), RUN.books[RUN.b].minutes * 60);
+    if (RUN.b < RUN.books.length - 1) { RUN.b++; oirIntro(); } else finishOir();
+  }
+  async function finishOir() {
+    const books = RUN.books.map((bk, bi) => {
+      const A = RUN.answers[bi]; let correct = 0, attempted = 0; const topics = {};
+      bk.questions.forEach((q, i) => { const ok = A[i] === q.answer; if (A[i] != null) attempted++; if (ok) correct++; const t = q.topic || bk.name; (topics[t] = topics[t] || [0, 0])[1]++; if (ok) topics[t][0]++; });
+      return { name: bk.name, total: bk.questions.length, correct, attempted, seconds: RUN.times[bi] || 0, minutes: bk.minutes, topics };
+    });
+    const tt = books.reduce((t, b) => ({ c: t.c + b.correct, n: t.n + b.total }), { c: 0, n: 0 });
+    const percent = tt.n ? Math.round((tt.c / tt.n) * 1000) / 10 : 0;
+    const a = { id: "o" + Date.now().toString(36), set: RUN.no, title: RUN.title, date: today(), createdAt: Date.now(), percent, rating: oirBand(percent).r, books, answers: RUN.answers };
+    RUN = null; $("#layer").innerHTML = ""; S.oir = [...(S.oir || []), a]; S.oirFilter = "wrong";
+    setView("oir", a.id);
+    try { await Store.saveOir(S.user.id, a); } catch (e) { alertBanner("Your OIR result is saved on this device but couldn't be uploaded to your account yet. It will still show here."); }
+  }
+
+  function viewOirResult() {
+    const a = (S.oir || []).find((x) => x.id === S.reportId);
+    if (!a) return `<section class="card"><h2>Result not found</h2><p class="muted">It may have been taken on another device before syncing.</p><button class="btn" data-goto="today">Back to Today</button></section>`;
+    const band = OIR_BANDS.find((b) => b.r === a.rating), tt = oirTotals(a);
+    if (!S.oirData[a.set] && S.oirSets && !S.oirLoading) { S.oirLoading = true; loadOirSet(a.set).catch(() => {}).finally(() => { S.oirLoading = false; if (S.view === "oir") render(); }); }
+    const data = S.oirData[a.set];
+    const books = a.books.map((b) => { const acc = b.attempted ? Math.round((b.correct / b.attempted) * 100) : 0, pct = b.total ? Math.round((b.correct / b.total) * 100) : 0;
+      return `<div class="oirbk"><div class="row" style="justify-content:space-between"><b>${esc(b.name)}</b><span class="num">${b.correct}/${b.total}</span></div>
+        <div class="bar"><b style="width:${pct}%"></b></div>
+        <div class="spec muted">${b.attempted} attempted · ${acc}% accuracy · ${fmtClock(b.seconds)} of ${b.minutes}:00 used</div></div>`; }).join("");
+    const topics = []; a.books.forEach((b) => Object.entries(b.topics || {}).forEach(([t, [c, n]]) => { if (t !== b.name) topics.push({ t, c, n, p: c / n }); }));
+    topics.sort((x, y) => x.p - y.p);
+    const scale = OIR_BANDS.map((b, i) => `<tr class="${b.r === a.rating ? "you" : ""}"><td><b>OIR ${b.r}</b></td><td>${b.label}</td><td class="num">${i ? `${b.min}–${OIR_BANDS[i - 1].min - 1}%` : `${b.min}% and above`}</td><td>${b.r === a.rating ? "← you" : ""}</td></tr>`).join("");
+    let review = `<p class="muted">Loading the questions…</p>`;
+    if (data) {
+      const items = []; data.booklets.forEach((bk, bi) => bk.questions.forEach((q, i) => { const mine = (a.answers[bi] || [])[i]; const ok = mine === q.answer; if (S.oirFilter === "all" || !ok) items.push({ bk, bi, q, i, mine, ok }); }));
+      review = items.length ? items.map(({ bk, bi, q, i, mine, ok }) => `<div class="oirrv ${ok ? "ok" : mine == null ? "skip" : "no"}"><div class="spec muted">${esc(bk.name)} · Q${i + 1} · ${ok ? "Correct" : mine == null ? "Not answered" : "Wrong"}</div>
+          <div class="qtext">${esc(q.q || "")}</div>${q.img ? `<img class="oirimg" src="${esc(oirSrc(q.img))}" alt="${esc(q.alt || "Figure")}" loading="lazy">` : ""}
+          <div class="oiropts rv${q.options.some(optImg) ? " imgs" : ""}">${q.options.map((o, j) => `<div class="oiropt${j === q.answer ? " right" : ""}${j === mine && !ok ? " wrongpick" : ""}"><span class="ol">${OPT_L[j]}</span>${optHTML(o)}${j === q.answer ? `<span class="tag">Correct</span>` : j === mine ? `<span class="tag">Your answer</span>` : ""}</div>`).join("")}</div>
+          ${q.explain ? `<p class="expl">${esc(q.explain)}</p>` : ""}</div>`).join("") : `<p class="muted">${S.oirFilter === "all" ? "No questions." : "Every answer was correct."}</p>`;
+    } else if (S.oirSets && !S.oirLoading) review = `<p class="muted">This booklet isn't available any more, so the questions can't be shown.</p>`;
+    return `<section class="card oirhero"><div class="eyebrow">OIR result · ${esc(a.title)} · ${fmtDate(a.date)}</div>
+        <div class="oirrate"><div class="oirbig ${OIR_CLS[a.rating]}">OIR ${a.rating}</div><div><div class="oirlabel">${band.label}</div><div class="muted">${tt.c} of ${tt.n} correct · ${a.percent}%</div></div></div>
+        <div class="oirbks">${books}</div>
+        <div class="row" style="gap:10px"><button class="btn" data-oir="${a.set}">Retake this booklet</button><button class="btn quiet" data-goto="today">Back to Today</button></div></section>
+      <section class="two">
+        <div class="card"><h2 class="sub">Rating scale</h2><div class="tablewrap"><table class="t oirscale"><tbody>${scale}</tbody></table></div>
+          <p class="muted" style="font-size:13px;margin:10px 0 0">At the board, OIR is graded from 1 (best) to 5, relative to your batch, and DIPR doesn't publish the cutoffs. These fixed bands, based on the share of questions you got right across both booklets, are for practice.</p></div>
+        <div class="card"><h2 class="sub">What to work on</h2>${topics.length ? `<ul class="list">${topics.slice(0, 5).map((x) => `<li class="${x.p >= 0.7 ? "str" : "imp"}"><b>${esc(x.t)}</b> · ${x.c}/${x.n} correct</li>`).join("")}</ul>` : `<ul class="list">${a.books.map((b) => `<li class="${b.correct / Math.max(1, b.total) >= 0.65 ? "str" : "imp"}"><b>${esc(b.name)}</b> · ${b.correct}/${b.total} correct${b.attempted < b.total ? `, ${b.total - b.attempted} left blank` : ""}</li>`).join("")}</ul>`}
+          <p class="muted" style="font-size:13px;margin:10px 0 0">Speed matters as much as accuracy: aim to attempt every question, since a blank always scores zero.</p></div>
+      </section>
+      <section class="card"><div class="section-h" style="margin-bottom:10px"><h2 style="font-size:22px">Answer review</h2>
+        <div class="seg" role="group" aria-label="Show"><button aria-pressed="${S.oirFilter !== "all"}" data-oirfilter="wrong">Wrong &amp; skipped</button><button aria-pressed="${S.oirFilter === "all"}" data-oirfilter="all">All</button></div></div>
+        <div class="oirrvs">${review}</div></section>`;
+  }
+  function oirHistory() {
+    const l = (S.oir || []).slice().reverse(); if (!l.length) return "";
+    return `<section class="card"><div class="section-h" style="margin-bottom:8px"><h2 style="font-size:22px">OIR results</h2><span class="muted" style="font-size:13px">${l.length} attempt${l.length === 1 ? "" : "s"}</span></div>
+      <div class="tablewrap"><table class="t"><thead><tr><th>Date</th><th>Booklet</th><th>Score</th><th>Rating</th></tr></thead><tbody>${l.map((a) => { const tt = oirTotals(a);
+        return `<tr class="click" data-oirres="${esc(a.id)}"><td>${fmtDate(a.date)}</td><td><b>${esc(a.title)}</b></td><td class="num">${tt.c}/${tt.n} · ${a.percent}%</td><td><span class="pill ${OIR_CLS[a.rating]}">OIR ${a.rating}</span></td></tr>`; }).join("")}</tbody></table></div></section>`;
   }
 
   /* ---------- boot ---------- */

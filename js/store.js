@@ -134,6 +134,17 @@
         if (!r.ok) { const er = new Error(j.message || `Server error (${r.status}).`); er.code = j.error || "http"; throw er; }
         return j;
       },
+      // OIR attempts: kept in this browser too, so a failed upload is never lost; merged by id when read
+      async oirAttempts(uid) {
+        const local = lget("u:" + uid + ":oir", []); let remote = [];
+        try { remote = (await rest(`oir_attempts?select=result&order=created_at.asc`)).map((r) => r.result); } catch (e) {}
+        const m = new Map(); [...remote, ...local].forEach((a) => a && a.id && m.set(a.id, a));
+        return [...m.values()].sort((x, y) => x.createdAt - y.createdAt);
+      },
+      async saveOir(uid, a) {
+        const l = lget("u:" + uid + ":oir", []); l.push(a); lset("u:" + uid + ":oir", l.slice(-100));
+        await rest(`oir_attempts`, { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ id: a.id, user_id: uid, set_no: a.set, date: a.date, percent: a.percent, rating: a.rating, result: a }) });
+      },
       async aiReviews() { return rest(`ai_reviews?select=id,kind,battery_id,session_id,test,date,day,status,result,created_at&order=created_at.desc&limit=200`); },
       isLoggedIn() { return !!auth; },
       logView(v) {
@@ -189,7 +200,7 @@
       async overall(uid) { return lget("u:" + uid + ":overall", null); },
       async saveOverall(uid, o) { lset("u:" + uid + ":overall", o); },
       async feedbackCount(uid) { return lget("u:" + uid + ":feedback", []).length; },
-      logView() {}, isLoggedIn() { return !!lget("current", null); }, async rpc() { throw new Error("Admin dashboard needs Supabase."); }, async ai() { const e = new Error("Psychologist Reviews need an online account."); e.code = "local"; throw e; }, async aiReviews() { return []; },
+      logView() {}, isLoggedIn() { return !!lget("current", null); }, async rpc() { throw new Error("Admin dashboard needs Supabase."); }, async ai() { const e = new Error("Psychologist Reviews need an online account."); e.code = "local"; throw e; }, async aiReviews() { return []; }, async oirAttempts(uid) { return lget("u:" + uid + ":oir", []); }, async saveOir(uid, a) { const l = lget("u:" + uid + ":oir", []); l.push(a); lset("u:" + uid + ":oir", l.slice(-100)); },
       isRecovery() { return false; }, async requestReset() { throw new Error("Password reset needs an online account."); }, async completeRecovery() { throw new Error("Password reset needs an online account."); },
       async saveFeedback(uid, f) { const l = lget("u:" + uid + ":feedback", []); l.push({ ...f, created_at: new Date().toISOString() }); lset("u:" + uid + ":feedback", l); return l.length; },
       async markFeedbackEmailed() {},

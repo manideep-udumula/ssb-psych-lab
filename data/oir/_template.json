@@ -1,0 +1,34 @@
+{
+  "no": 1,
+  "title": "OIR Booklet 01",
+  "source": "Where these questions come from, and confirmation that you have permission to use them",
+  "booklets": [
+    {
+      "name": "Verbal reasoning",
+      "minutes": 17,
+      "questions": [
+        {
+          "q": "Question text goes here",
+          "options": ["Option A", "Option B", "Option C", "Option D"],
+          "answer": 2,
+          "topic": "Number series",
+          "explain": "Optional: why option C is right. Shown in the answer review."
+        }
+      ]
+    },
+    {
+      "name": "Non-verbal reasoning",
+      "minutes": 17,
+      "questions": [
+        {
+          "q": "Which figure comes next?",
+          "img": "img/b01/nv-01.png",
+          "alt": "Short description of the figure, for screen readers",
+          "options": [{ "img": "img/b01/nv-01-a.png" }, { "img": "img/b01/nv-01-b.png" }, { "img": "img/b01/nv-01-c.png" }, { "img": "img/b01/nv-01-d.png" }],
+          "answer": 0,
+          "topic": "Figure series"
+        }
+      ]
+    }
+  ]
+}

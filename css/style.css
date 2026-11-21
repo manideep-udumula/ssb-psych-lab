@@ -257,3 +257,51 @@ body.authed #chest{cursor:pointer}
 .landing-test{text-align:left;cursor:pointer;font:inherit;color:inherit;display:flex;flex-direction:column;gap:10px}
 .landing-test:hover{border-color:var(--olive)}
 .linkish{color:var(--olive);font-weight:600;font-size:14px;margin-top:auto}
+
+/* OIR: Today card, booklet (MCQ list), results */
+.oircard{display:flex;flex-direction:column;gap:12px}
+.oirlist{display:flex;flex-direction:column}
+.oirrow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.oirrow .spec{font-size:12.5px}
+.oirbook{display:flex;flex-direction:column;gap:14px;max-width:760px;margin:0 auto;width:100%}
+.oirq{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:14px;margin:0;min-width:0}
+.oirq legend{display:flex;gap:10px;align-items:flex-start;padding:0;font-size:16px;line-height:1.4;float:left;width:100%;margin-bottom:10px}
+.oirq legend+*{clear:both}
+.qn{flex:none;min-width:28px;height:28px;padding:0 4px;border-radius:6px;background:var(--olive);color:var(--surface);display:grid;place-items:center;font-family:var(--mono);font-size:13px;font-weight:700}
+.oirimg{display:block;max-width:100%;max-height:260px;margin:0 0 10px;border:1px solid var(--line);border-radius:6px;background:#fff;clear:both}
+.oiropts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;clear:both}
+.oiropts.imgs{grid-template-columns:repeat(auto-fit,minmax(110px,1fr))}
+.oiropt{display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:15px;text-align:left;cursor:pointer}
+.oiropt img{max-width:100%;max-height:90px;background:#fff;border-radius:4px}
+.oiropt .ol{flex:none;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--muted);display:grid;place-items:center;font-family:var(--mono);font-size:12px;font-weight:700}
+.oiropt:hover{border-color:var(--olive)}
+.oiropt.on{border-color:var(--olive);background:color-mix(in srgb,var(--olive) 12%,var(--surface))}
+.oiropt.on .ol{background:var(--olive);border-color:var(--olive);color:var(--surface)}
+.oirsubmit{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 -6px 18px rgba(0,0,0,.06)}
+.oirhero{display:flex;flex-direction:column;gap:16px}
+.oirrate{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.oirbig{font-family:var(--display);font-size:clamp(48px,9vw,72px);font-weight:700;line-height:.9;letter-spacing:.02em;color:var(--olive)}
+.oirbig.good{color:var(--good)}.oirbig.warn{color:var(--warn)}.oirbig.bad{color:var(--bad)}.oirbig.neutral{color:var(--olive)}
+.oirlabel{font-family:var(--display);font-size:26px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.oirbks{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.oirbk{display:flex;flex-direction:column;gap:6px}
+.oirbk .bar{height:10px;background:var(--line);border-radius:5px;overflow:hidden}
+.oirbk .bar b{display:block;height:100%;background:var(--olive)}
+.oirbk .spec{font-size:12.5px}
+.oirscale tr.you td{background:color-mix(in srgb,var(--olive) 12%,var(--surface));font-weight:700}
+.oirrvs{display:flex;flex-direction:column;gap:12px}
+.oirrv{border:1px solid var(--line);border-left:4px solid var(--bad);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.oirrv.ok{border-left-color:var(--good)}.oirrv.skip{border-left-color:var(--muted)}
+.oirrv .qtext{font-size:15.5px}
+.oiropts.rv .oiropt{cursor:default}
+.oiropt.right{border-color:var(--good);background:color-mix(in srgb,var(--good) 10%,var(--surface))}
+.oiropt.right .ol{background:var(--good);border-color:var(--good);color:#fff}
+.oiropt.wrongpick{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,var(--surface))}
+.oiropt .tag{margin-left:auto;font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.expl{margin:0;font-size:14px;color:var(--muted)}
+@media (max-width:520px){.oirrow{flex-wrap:wrap}.oiropts{grid-template-columns:1fr 1fr}.oirsubmit .btn{flex:1}}
+.oirimg{width:auto;max-width:min(100%,360px);max-height:220px}
+.oiropt{flex-wrap:wrap;min-width:0}
+.oiropts.imgs .oiropt img{max-height:70px}
+.oiropts.imgs .oiropt .tag{flex-basis:100%;margin-left:0}
+.oirimg{align-self:flex-start;object-fit:contain;height:auto}
